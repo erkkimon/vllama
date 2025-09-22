@@ -56,7 +56,7 @@ app.add_middleware(
 class ChatCompletionRequest(BaseModel):
     model: str
     messages: List[Dict[str, Any]]
-    max_tokens: int = 150
+    max_tokens: Optional[int] = None  # configurable default applied later
     temperature: float = 0.7
     top_p: float = 0.95
     repetition_penalty: float = 1.1
@@ -72,6 +72,7 @@ engine_lock = asyncio.Lock()
 last_activity = time.time()
 IDLE_TIMEOUT = int(os.environ.get("IDLE_TIMEOUT", 300))
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
+MAX_TOKENS_DEFAULT = int(os.environ.get("MAX_TOKENS_DEFAULT", 1024))  # NEW
 
 # ---------- Output sanitization to strip meta/thoughts ----------
 # We remove blocks even if they are UN-CLOSED, stopping at the next bracket tag, a blank line, or end.
@@ -264,17 +265,26 @@ async def list_models_endpoint():
         print(f"[DEBUG] Full traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"Failed to fetch models: {e}")
 
-def _parse_tool_choice(tool_choice: Any) -> Tuple[bool, Optional[str]]:
+def _parse_tool_choice(tool_choice: Any, tools_present: bool) -> Tuple[bool, Optional[str]]:
     """
-    Returns (tool_required, required_function_name or None)
-    Supports: "required" or {"type":"function","function":{"name":"..."}}
+    Returns (tool_required, required_function_name)
+    Policy:
+      - If tool_choice == "none": not required
+      - If tool_choice == "required": required
+      - If tool_choice is {"type":"function", "function":{"name":...}}: required that function
+      - Else: if tools are present and env FORCE_TOOL_FIRST_WHEN_TOOLS!=0, treat as required
     """
+    if tool_choice == "none":
+        return False, None
     if tool_choice == "required":
         return True, None
-    if isinstance(tool_choice, dict):
-        if tool_choice.get("type") == "function":
-            name = tool_choice.get("function", {}).get("name")
-            return True, name
+    if isinstance(tool_choice, dict) and tool_choice.get("type") == "function":
+        return True, tool_choice.get("function", {}).get("name")
+
+    # Heuristic default for Roo/Cline: if tools are present but tool_choice omitted, require tool-first.
+    force_when_tools = os.environ.get("FORCE_TOOL_FIRST_WHEN_TOOLS", "1").lower() not in ("0", "false", "no", "off")
+    if tools_present and force_when_tools:
+        return True, None
     return False, None
 
 @app.post("/v1/chat/completions")
@@ -282,7 +292,9 @@ async def chat_completions(request: ChatCompletionRequest):
     """vLLM inference with Ollama model management"""
     try:
         # Determine tool requirement
-        tool_required, required_function_name = _parse_tool_choice(request.tool_choice)
+        tool_required, required_function_name = _parse_tool_choice(request.tool_choice, bool(request.tools))
+        print(f"[DEBUG] tools_present={bool(request.tools)} tool_choice={request.tool_choice!r} "
+              f"tool_required={tool_required} required_function={required_function_name}")
 
         # Lazy load vLLM engine
         engine = await load_vLLM(request.model)
@@ -300,14 +312,17 @@ async def chat_completions(request: ChatCompletionRequest):
         sampling_params = SamplingParams(
             temperature=request.temperature,
             top_p=request.top_p,
-            max_tokens=request.max_tokens,
+            max_tokens=request.max_tokens or MAX_TOKENS_DEFAULT,  # use default if client omitted
             repetition_penalty=request.repetition_penalty,
             stop=[
                 "</s>", "[/INST]", "<|im_start|>assistant",
                 "[/ASSISTANT]",  # helps DevStral-like tags
                 "[thinking]", "[/thinking]", "[plan]", "[/plan]",
                 "[scratchpad]", "[/scratchpad]", "[internal]", "[/internal]",
-                "Roo has a question"
+                "Roo has a question",
+                "Roo wants to read this file",   # extra cut-offs seen in traces
+                "[USER][ERROR]",
+                "Roo is having trouble..."
             ]
         )
 
@@ -380,9 +395,8 @@ async def chat_completions(request: ChatCompletionRequest):
                         # Parse and emit tool_calls
                         try:
                             parsed_tool_calls = json.loads(json_str)
-                            # If a specific function is required, optionally enforce (filter or just send all)
                             if required_function_name:
-                                # Optional enforcement: ensure at least one matches
+                                # Log if the required function isn't present
                                 if not any(tc.get("name") == required_function_name for tc in parsed_tool_calls):
                                     print(f"[WARN] Required function '{required_function_name}' not found in TOOL_CALLS; forwarding anyway.")
                             tool_calls = []

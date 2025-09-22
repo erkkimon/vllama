@@ -48,7 +48,7 @@ curl http://localhost:11435/v1/models  # Lists Ollama models
 curl http://localhost:11435/health     # Shows vLLM status
 
 # Test network access (from another machine)
-curl http://<ferocitee-ip>:11435/v1/models
+curl http://your-ip-address:11435/v1/models
 ```
 
 ### Development (isolated)
@@ -126,11 +126,18 @@ sudo systemctl disable vllama
 
 vllama provides a fully OpenAI-compatible API, making it a seamless drop-in replacement for tools like Roo Code and Cline. Both tools can connect to vllama's endpoint (http://localhost:11435) instead of Ollama (http://localhost:11434) to get faster inference while maintaining the same model management workflow. You can install new models using ollama but use them via vllama API.
 
-Endpoint: http://localhost:11435 (or http://<ip-address|hostname>:11435 for network access from other computers in the network)
+Endpoint: http://localhost:11435 (or http://your-ip-or-hostname:11435 for network access from other computers in the network)
 
 1. Open Roo Code settings and set the API base URL to `http://localhost:11435`
 2. Model selection: huihui_ai/devstral-abliterated should appear as an option (same as Ollama), assuming that you have pulled it using ollama.
 3. Start coding: Roo Code will use vLLM for 3-4x faster responses
+
+# Available settings
+
+Default settings can be overriden by setting environment variables, which are these:
+
+* `MAX_TOKENS_DEFAULT` (default 1024): raise/lower the completion budget for clients that don’t pass `max_tokens`.
+* `FORCE_TOOL_FIRST_WHEN_TOOLS` (default `1`): set to `0` if you want to allow prose-first even when tools are provided and tool_choice is omitted.
 
 ## Implementation
 
