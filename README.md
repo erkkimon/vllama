@@ -166,6 +166,25 @@ vllama's architecture is a hybrid proxy-inference system:
 
 This architecture ensures vllama is a seamless, faster Ollama alternative for GPU-accelerated setups, ideal for those seeking vLLM as OpenAI server with lazy loading or ways to speed up Ollama without full migration. 🌟
 
+### Roo / Cline Compatibility
+
+This server is designed to work with RooCode and Cline, which expect strict
+OpenAI-compatible semantics around tool calls.
+
+- **Tool enforcement**: When the client specifies `tool_choice="required"` (or
+  a specific function), the assistant must *only* output a `[TOOL_CALLS][…]`
+  block as its first action. Any pre-tool prose will cause Roo to inject an
+  error. The server enforces this by adjusting the system prompt and suppressing
+  pre-tool output in streaming mode.
+
+- **Sanitization**: Some models (especially DevStral clones) emit hidden
+  `[thinking]…[/thinking]` or `[plan]…` blocks. These are stripped before being
+  sent to clients. In streaming mode, whitespace at chunk boundaries is
+  preserved so text doesn’t become scrambled.
+
+- **Stop tokens**: Extra stops like `[/ASSISTANT]` are added to prevent the
+  model from leaking unwanted closing tags or meta.
+
 # Troubleshooting
 
 ```
