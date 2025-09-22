@@ -32,7 +32,7 @@ The AUR package includes a bundled venv312 environment and systemd service. Afte
 pikaur -S vllama
 
 # Pull a test model with Ollama (dependency)
-ollama pull hui_hui/devstral:latest
+ollama pull huihui_ai/devstral-abliterated
 
 # Enable and start vllama service
 sudo systemctl enable vllama
@@ -68,7 +68,7 @@ source venv312/bin/activate
 pip install -r requirements.txt
 
 # Pull a test model with Ollama
-ollama pull hui_hui/devstral:latest
+ollama pull huihui_ai/devstral-abliterated
 ```
 
 #### Running development environment
@@ -127,7 +127,7 @@ vllama provides a fully OpenAI-compatible API, making it a seamless drop-in repl
 Endpoint: http://localhost:11435 (or http://<ip-address|hostname>:11435 for network access from other computers in the network)
 
 1. Open Roo Code settings and set the API base URL to `http://localhost:11435`
-2. Model selection: hui_hui/devstral:latest should appear as an option (same as Ollama), assuming that you have pulled it using ollama.
+2. Model selection: huihui_ai/devstral-abliterated should appear as an option (same as Ollama), assuming that you have pulled it using ollama.
 3. Start coding: Roo Code will use vLLM for 3-4x faster responses
 
 ## Implementation
