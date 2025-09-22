@@ -145,6 +145,13 @@ vllama is implemented as a lightweight Python server using FastAPI for the API l
 
 Important notes: vllama requires Ollama running in parallel for model management—treat it as a companion tool. If you're troubleshooting vLLM GGUF support or seeking ways to automate Ollama with vLLM, note that model paths are dynamically fetched via Ollama CLI, making it robust for updates. For Arch Linux users, pikaur handles dependencies smoothly.
 
+Key dependencies:
+- Python 3.12
+- vLLM (version 0.10.2)
+- FastAPI (version 0.117.1)
+- Uvicorn (version 0.36.0)
+- Ollama (version 0.5.4)
+
 ## Important Notes for Developers
 
 - **Dependencies and Setup**: vllama relies on Ollama for model pulling and registry (e.g., `ollama pull`), and vLLM for inference. Install via `pip install -r requirements.txt`. Ensure Ollama is running on port 11434; vllama proxies to it for `/v1/models`. Test with `python vllama.py`—it binds to 0.0.0.0:11435 for network access.

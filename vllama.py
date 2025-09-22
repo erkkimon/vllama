@@ -72,7 +72,7 @@ engine_lock = asyncio.Lock()
 last_activity = time.time()
 IDLE_TIMEOUT = int(os.environ.get("IDLE_TIMEOUT", 300))
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
-MAX_TOKENS_DEFAULT = int(os.environ.get("MAX_TOKENS_DEFAULT", 1024))  # NEW
+MAX_TOKENS_DEFAULT = int(os.environ.get("MAX_TOKENS_DEFAULT", 1024))  # default completion budget
 
 # ---------- Output sanitization to strip meta/thoughts ----------
 # We remove blocks even if they are UN-CLOSED, stopping at the next bracket tag, a blank line, or end.
@@ -300,7 +300,7 @@ async def chat_completions(request: ChatCompletionRequest):
         engine = await load_vLLM(request.model)
 
         # Convert messages to model-specific prompt format
-        prompt = build_model_prompt(
+        prompt, seeded_tool_prefix = build_model_prompt(
             request.messages,
             request.model,
             request.tools,
@@ -308,6 +308,8 @@ async def chat_completions(request: ChatCompletionRequest):
             required_function_name=required_function_name
         )
         print(f"[DEBUG] Generated prompt: {prompt[:200]}...")
+        if tool_required and seeded_tool_prefix:
+            print("[DEBUG] Prompt seeded with [ASSISTANT][TOOL_CALLS] prefix for tool-first enforcement.")
 
         sampling_params = SamplingParams(
             temperature=request.temperature,
@@ -320,7 +322,7 @@ async def chat_completions(request: ChatCompletionRequest):
                 "[thinking]", "[/thinking]", "[plan]", "[/plan]",
                 "[scratchpad]", "[/scratchpad]", "[internal]", "[/internal]",
                 "Roo has a question",
-                "Roo wants to read this file",   # extra cut-offs seen in traces
+                "Roo wants to read this file",
                 "[USER][ERROR]",
                 "Roo is having trouble..."
             ]
@@ -379,14 +381,31 @@ async def chat_completions(request: ChatCompletionRequest):
                     previous_text = new_text
                     buffer += delta
 
-                    # Detect tool calls
-                    match = re.search(r"\[TOOL_CALLS\]\[(.*?)\]", buffer, re.DOTALL)
-                    if match and not tool_calls_sent:
-                        before = buffer[:match.start()]
-                        json_str = match.group(1)
-                        after = buffer[match.end():]
+                    # Branch A: classic [TOOL_CALLS][ ... ] in generated text
+                    match_tagged = re.search(r"\[TOOL_CALLS\]\[(.*?)\]", buffer, re.DOTALL)
 
-                        # If tools are required, DO NOT emit pre-tool content
+                    # Branch B: seeded prefix -> generation starts with just a JSON array
+                    match_seeded = None
+                    if (not match_tagged) and (tool_required and seeded_tool_prefix):
+                        # Look for a leading [...] array
+                        m = re.search(r"^\s*\[(.*?)\]", buffer, re.DOTALL)
+                        if m:
+                            match_seeded = m
+
+                    if (match_tagged or match_seeded) and not tool_calls_sent:
+                        if match_tagged:
+                            before = buffer[:match_tagged.start()]
+                            json_str = match_tagged.group(1)
+                            after = buffer[match_tagged.end():]
+                            which = "tagged"
+                        else:
+                            before = buffer[:match_seeded.start()]
+                            json_str = match_seeded.group(1)
+                            after = buffer[match_seeded.end():]
+                            which = "seeded"
+                        print(f"[DEBUG] Detected tool-call block via {which} branch.")
+
+                        # If tools are required, suppress pre-tool prose
                         if not tool_required:
                             clean_before = sanitize_visible_text(before, for_stream=True)
                             if clean_before:
@@ -394,11 +413,10 @@ async def chat_completions(request: ChatCompletionRequest):
 
                         # Parse and emit tool_calls
                         try:
-                            parsed_tool_calls = json.loads(json_str)
+                            parsed_tool_calls = json.loads(f"[{json_str}]")
                             if required_function_name:
-                                # Log if the required function isn't present
                                 if not any(tc.get("name") == required_function_name for tc in parsed_tool_calls):
-                                    print(f"[WARN] Required function '{required_function_name}' not found in TOOL_CALLS; forwarding anyway.")
+                                    print(f"[WARN] Required function '{required_function_name}' not present in TOOL_CALLS.")
                             tool_calls = []
                             for tc in parsed_tool_calls:
                                 tool_calls.append({
@@ -406,7 +424,7 @@ async def chat_completions(request: ChatCompletionRequest):
                                     "type": "function",
                                     "function": {
                                         "name": tc["name"],
-                                        "arguments": json.dumps(tc["arguments"])
+                                        "arguments": json.dumps(tc.get("arguments", {}))
                                     }
                                 })
                             yield sse_delta_tool_calls(tool_calls)
@@ -451,9 +469,28 @@ async def chat_completions(request: ChatCompletionRequest):
             tool_calls: List[Dict[str, Any]] = []
             content = generated_text
 
+            # Branch A: classic [TOOL_CALLS][...]
             tool_calls_pattern = r"\[TOOL_CALLS\]\[(.*?)\]"
             match = re.search(tool_calls_pattern, generated_text, re.DOTALL)
-            if match:
+
+            # Branch B: seeded prefix -> generation is just a JSON array
+            if not match and (tool_required and seeded_tool_prefix):
+                m2 = re.search(r"^\s*\[(.*?)\]\s*$", generated_text, re.DOTALL)
+                if m2:
+                    print("[DEBUG] Non-stream detected tool-call block via seeded branch.")
+                    try:
+                        parsed = json.loads("[" + m2.group(1) + "]")
+                        for tc in parsed:
+                            tool_calls.append({
+                                "id": random_uuid(),
+                                "type": "function",
+                                "function": {"name": tc["name"], "arguments": json.dumps(tc.get("arguments", {}))}
+                            })
+                        content = ""  # no user-visible prose when tools are used
+                    except json.JSONDecodeError:
+                        pass  # fall through to normal handling
+
+            if match and not tool_calls:
                 json_str = match.group(1)
                 try:
                     parsed_tool_calls = json.loads(json_str)
@@ -463,7 +500,7 @@ async def chat_completions(request: ChatCompletionRequest):
                         tool_calls.append({
                             "id": random_uuid(),
                             "type": "function",
-                            "function": {"name": tc["name"], "arguments": json.dumps(tc["arguments"])}
+                            "function": {"name": tc["name"], "arguments": json.dumps(tc.get("arguments", {}))}
                         })
                     # Remove the tool calls from the visible content
                     content = re.sub(tool_calls_pattern, "", generated_text, 1, re.DOTALL).strip()
@@ -493,7 +530,7 @@ async def chat_completions(request: ChatCompletionRequest):
                 "model": request.model,
                 "choices": [{
                     "index": 0,
-                    "message": {"role": "assistant", "content": content, "tool_calls": tool_calls},
+                    "message": {"role": "assistant", "content": content if content else None, "tool_calls": tool_calls or None},
                     "finish_reason": final_output.outputs[0].finish_reason if final_output.outputs[0].finish_reason else "stop"
                 }],
                 "usage": {
@@ -520,14 +557,15 @@ def build_model_prompt(
     *,
     force_tools: bool = False,
     required_function_name: Optional[str] = None
-) -> str:
+) -> Tuple[str, bool]:
     """
     Builds a prompt. If the model looks like DevStral, use DevStral tag format:
       [SYSTEM_PROMPT]...[/SYSTEM_PROMPT]
       [AVAILABLE_TOOLS]...[/AVAILABLE_TOOLS]
       [USER]...[/USER]
       [ASSISTANT]...[/ASSISTANT]
-    Otherwise, fall back to the Llama-chat style you had.
+    Returns (prompt, seeded_tool_prefix) where seeded_tool_prefix==True
+    when the prompt ends with [ASSISTANT][TOOL_CALLS] to force tool-call-first.
     """
     def only_text(content):
         if isinstance(content, str):
@@ -539,17 +577,19 @@ def build_model_prompt(
     model_lc = (model_id or "").lower()
     devstral_like = any(x in model_lc for x in ["devstral", "huihui_ai", "abliterated"])
 
+    seeded_tool_prefix = False
+
     if devstral_like:
         sys_lines = ["You are a fast, helpful assistant."]
         if force_tools:
             sys_lines += [
                 "TOOLS ARE REQUIRED for this reply.",
-                "Output ONLY one tag exactly once: [TOOL_CALLS][<valid JSON array>].",
-                "Do not output any other text before or after the tag.",
+                "Output ONLY a single tool call JSON array.",
+                "Do not output any other text."
             ]
             if required_function_name:
                 sys_lines.append(
-                    f"You MUST call the function named \"{required_function_name}\" in the TOOL_CALLS array."
+                    f"You MUST call the function named \"{required_function_name}\" in the tool calls."
                 )
         else:
             sys_lines += [
@@ -581,7 +621,14 @@ def build_model_prompt(
             else:
                 conv.append(f"[USER]{content}[/USER]")
 
-        return system_block + tools_block + "\n".join(conv) + "\n[ASSISTANT]"
+        # For tool-required flows, seed the assistant with [TOOL_CALLS] to bias DevStral to emit only the JSON array.
+        if force_tools:
+            prompt = system_block + tools_block + "\n".join(conv) + "\n[ASSISTANT][TOOL_CALLS]"
+            seeded_tool_prefix = True
+        else:
+            prompt = system_block + tools_block + "\n".join(conv) + "\n[ASSISTANT]"
+
+        return prompt, seeded_tool_prefix
     else:
         # Fallback: Llama chat style with optional force_tools hint baked into system
         prompt_parts = []
@@ -607,7 +654,10 @@ def build_model_prompt(
                 prompt_parts.append(f"[INST] {content} [/INST]")
             elif role == "assistant":
                 prompt_parts.append(f"{content}")
-        return "<s>" + " ".join(prompt_parts) + "</s>"
+        if force_tools:
+            # Seed assistant tool-calls start token for non-devstral too
+            return "<s>" + " ".join(prompt_parts) + "</s>" + "\n[TOOL_CALLS]", True
+        return "<s>" + " ".join(prompt_parts) + "</s>", False
 
 @app.get("/health")
 async def health_check():
