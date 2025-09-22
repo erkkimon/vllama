@@ -67,7 +67,7 @@ source venv312/bin/activate
 # Install dependencies
 pip install -r requirements.txt
 
-# Pull a test model with Ollama
+# Pull a test model with Ollama, works with 24 Gb of VRAM (Nvidia RTX 3090, RTX 4090, etc.)
 ollama pull huihui_ai/devstral-abliterated
 ```
 
