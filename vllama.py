@@ -75,6 +75,7 @@ OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
 MAX_TOKENS_DEFAULT = int(os.environ.get("MAX_TOKENS_DEFAULT", 1024))  # default completion budget
 DEFAULT_CONTEXT_WINDOW = int(os.environ.get("DEFAULT_CONTEXT_WINDOW", 65536))  # fallback context window (64k default)
 REPORTED_CONTEXT_WINDOW = int(os.environ.get("REPORTED_CONTEXT_WINDOW", 65536))  # context window reported to clients (64k default)
+DEVSTRAL_CONTEXT_WINDOW = int(os.environ.get("DEVSTRAL_CONTEXT_WINDOW", 65536))  # context window for Devstral models (64k default)
 current_max_model_len = None
 
 # ---------- Output sanitization to strip meta/thoughts ----------
@@ -238,6 +239,22 @@ async def load_vLLM(model_id: str):
         last_activity = time.time()
         return engine
 
+def get_model_specific_context_window(model_id: str) -> int:
+    """Get context window for specific model types with environment variable override"""
+    model_lower = model_id.lower()
+    
+    # Devstral model detection (covers huihui_ai/devstral-abliterated:latest and variants)
+    if any(keyword in model_lower for keyword in [
+        "devstral",
+        "huihui_ai/devstral",
+        "devstral-abliterated"
+    ]):
+        print(f"[DEBUG] Detected Devstral model: {model_id}, using context window: {DEVSTRAL_CONTEXT_WINDOW}")
+        return DEVSTRAL_CONTEXT_WINDOW
+    
+    # Fallback to global setting
+    return REPORTED_CONTEXT_WINDOW
+
 def get_context_window_for_model(model_id: str) -> int:
     """Get context window for a model, using actual vLLM engine if loaded, or fallback"""
     global current_max_model_len
@@ -246,62 +263,48 @@ def get_context_window_for_model(model_id: str) -> int:
     if engine and current_max_model_len:
         return current_max_model_len
     
-    # Otherwise, use environment variable or default
-    return DEFAULT_CONTEXT_WINDOW
+    # Otherwise, use model-specific context window detection
+    return get_model_specific_context_window(model_id)
 
 def get_reported_context_window_for_model(model_id: str) -> int:
     """Get context window to report to clients (can be different from actual vLLM context)"""
-    # Use the reported context window (configurable via environment variable)
-    # This allows users to set a different value than the actual vLLM context window
-    return REPORTED_CONTEXT_WINDOW
+    # Use model-specific context window detection instead of generic REPORTED_CONTEXT_WINDOW
+    return get_model_specific_context_window(model_id)
 
 @app.get("/v1/models")
 async def list_models_endpoint():
-    """Proxy to Ollama's /api/tags endpoint with proper context window reporting"""
+    """Proxy to Ollama's /api/tags endpoint, formatted for OpenAI and LiteLLM compatibility"""
     try:
         response = requests.get(f"{OLLAMA_URL}/api/tags", timeout=5)
         response.raise_for_status()
         ollama_data = response.json()
-        print(f"[DEBUG] Ollama /api/tags response: {json.dumps(ollama_data, indent=2)}")
-        if "models" in ollama_data:
-            ollama_models = ollama_data["models"]
-        else:
-            ollama_models = ollama_data.get("models", [])
-        print(f"[DEBUG] Found {len(ollama_models)} models")
+        
+        if "models" not in ollama_data:
+            print("[WARN] No 'models' key in Ollama response.")
+            return {"object": "list", "data": []}
+
         openai_models = []
-        for model in ollama_models:
-            model_id = model.get("name", "")
+        for model in ollama_data["models"]:
+            model_id = model.get("name")
             if not model_id:
-                print(f"[DEBUG] Skipping model with no name: {model}")
                 continue
-            size_bytes = model.get("size", 0)
-            size_gb = round(size_bytes / (1024**3), 1) if size_bytes else None
-            
-            # Get context window for this model (reported to clients)
+
             context_window = get_reported_context_window_for_model(model_id)
             
-            model_info = {
+            # This format is for standard OpenAI API compatibility
+            openai_models.append({
                 "id": model_id,
                 "object": "model",
                 "created": int(time.time()),
                 "owned_by": "vllama",
                 "context_window": context_window,
-                "max_position_embeddings": context_window,
-            }
-            if size_gb:
-                model_info["size"] = f"{size_gb}GB"
-            openai_models.append(model_info)
-            print(f"[DEBUG] Added model: {model_id} (context: {context_window}, size: {size_gb}GB)")
-        response_data = {"object": "list", "data": openai_models}
-        print(f"[DEBUG] Returning {len(openai_models)} models")
-        return response_data
+            })
+
+        return {"object": "list", "data": openai_models}
+
     except requests.RequestException as e:
-        print(f"[ERROR] Ollama request failed: {e}")
         raise HTTPException(status_code=503, detail=f"Ollama service unavailable: {e}")
     except Exception as e:
-        import traceback
-        print(f"[ERROR] Unexpected error in list_models_endpoint: {e}")
-        print(f"[DEBUG] Full traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"Failed to fetch models: {e}")
 
 def _parse_tool_choice(tool_choice: Any, tools_present: bool) -> Tuple[bool, Optional[str]]:
@@ -325,6 +328,11 @@ def _parse_tool_choice(tool_choice: Any, tools_present: bool) -> Tuple[bool, Opt
     if tools_present and force_when_tools:
         return True, None
     return False, None
+
+@app.post("/chat/completions")
+async def chat_completions_root(request: ChatCompletionRequest):
+    """LiteLLM compatibility endpoint for chat completions at root path"""
+    return await chat_completions(request)
 
 @app.post("/v1/chat/completions")
 async def chat_completions(request: ChatCompletionRequest):
@@ -795,25 +803,23 @@ async def litellm_model_info():
         response.raise_for_status()
         ollama_data = response.json()
         
-        if "models" in ollama_data:
-            ollama_models = ollama_data["models"]
-        else:
-            ollama_models = ollama_data.get("models", [])
-        
+        if "models" not in ollama_data:
+            print("[WARN] No 'models' key in Ollama response.")
+            return {"data": []}
+
         model_data = []
-        for model in ollama_models:
-            model_id = model.get("name", "")
+        for model in ollama_data["models"]:
+            model_id = model.get("name")
             if not model_id:
                 continue
             
-            # Get the reported context window for this model
             context_window = get_reported_context_window_for_model(model_id)
             
             model_data.append({
-                "model_name": model_id,
+                "model_name": model_id, # This is the ID that Roo Code uses
                 "model_info": {
                     "max_tokens": MAX_TOKENS_DEFAULT,
-                    "max_input_tokens": context_window,  # This becomes contextWindow in Roo Code
+                    "max_input_tokens": context_window,
                     "supports_vision": False,
                     "supports_prompt_caching": False,
                     "supports_computer_use": False,
@@ -821,17 +827,15 @@ async def litellm_model_info():
                     "output_cost_per_token": 0
                 },
                 "litellm_params": {
-                    "model": model_id
+                    "model": model_id # This is the model name that LiteLLM uses
                 }
             })
         
         return {"data": model_data}
         
     except requests.RequestException as e:
-        print(f"[ERROR] Ollama request failed in model/info: {e}")
         raise HTTPException(status_code=503, detail=f"Ollama service unavailable: {e}")
     except Exception as e:
-        print(f"[ERROR] Unexpected error in model/info: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to fetch model info: {e}")
 
 @app.get("/v1")
