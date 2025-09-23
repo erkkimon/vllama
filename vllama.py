@@ -43,7 +43,7 @@ async def lifespan(app: FastAPI):
     print(f"Lazy loading: vLLM unloads after {IDLE_TIMEOUT}s idle")
     yield
 
-app = FastAPI(title="vllama", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="vllama", version="0.1.1", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -74,24 +74,20 @@ IDLE_TIMEOUT = int(os.environ.get("IDLE_TIMEOUT", 300))
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
 MAX_TOKENS_DEFAULT = int(os.environ.get("MAX_TOKENS_DEFAULT", 1024))  # default completion budget
 DEFAULT_CONTEXT_WINDOW = int(os.environ.get("DEFAULT_CONTEXT_WINDOW", 65536))  # fallback context window (64k default)
-REPORTED_CONTEXT_WINDOW = int(os.environ.get("REPORTED_CONTEXT_WINDOW", 65536))  # context window reported to clients (64k default)
+REPORTED_CONTEXT_WINDOW = int(os.environ.get("RE REPORTED_CONTEXT_WINDOW", 65536)) if os.environ.get("REPORTED_CONTEXT_WINDOW") else 65536
+DEVSTRAL_CONTEXT_WINDOW = int(os.environ.get("DEVSTRAL_CONTEXT_WINDOW", 65536))
 current_max_model_len = None
 
 # ---------- Output sanitization to strip meta/thoughts ----------
-# We remove blocks even if they are UN-CLOSED, stopping at the next bracket tag, a blank line, or end.
+# Keep XML tool payloads intact; only remove hidden-thought tags and Roo banners.
 THINK_TAGS = r"(?:thinking|plan|scratchpad|analysis|internal|note|notes|reflection|deliberate)"
 THINKY_PATTERNS = [
-    # Properly closed blocks: [thinking] ... [/thinking]
     rf"(?is)\[\s*{THINK_TAGS}\s*\](.*?)\[/\s*{THINK_TAGS}\s*\]",
-    # Open block until next bracket tag like [ASSISTANT] or [TOOL_CALLS] or [/something]
     rf"(?is)\[\s*{THINK_TAGS}\s*\][\s\S]*?(?=(\n\[[A-Za-z_\/]+)|\Z)",
-    # Open block until the next blank line (two consecutive newlines)
     rf"(?is)\[\s*{THINK_TAGS}\s*\][^\S\r\n]*[\s\S]*?(?=\n\s*\n|\Z)",
-    # Standalone tags on their own line
     rf"(?im)^\s*\[\s*{THINK_TAGS}\s*\]\s*$",
-    # Boilerplate we’ve seen in DevStral-ish dumps
+    r"(?im)^\s*Roo is having trouble.*?(?=\n\s*\n|\Z)",
     r"(?is)\bTask\s+Completed\b.*$",
-    r"(?im)^\s*Roo has a question.*?(?=\n\s*\n|\Z)",
 ]
 
 def sanitize_visible_text(txt: str, *, for_stream: bool = False) -> str:
@@ -102,6 +98,7 @@ def sanitize_visible_text(txt: str, *, for_stream: bool = False) -> str:
     """
     if not txt:
         return txt
+    # Do NOT strip XML tool calls; they're not bracket-tagged.
     for pat in THINKY_PATTERNS:
         txt = re.sub(pat, "", txt, flags=re.IGNORECASE | re.DOTALL)
     # remove stray tag-only lines
@@ -199,7 +196,6 @@ def get_ollama_model_path(model_id: str) -> str:
         raise HTTPException(status_code=404, detail=f"Model file not found: {e}")
     except Exception as e:
         print(f"[ERROR] Unexpected error getting model path: {e}")
-        import traceback
         print(f"[DEBUG] Full traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"Failed to load model path: {e}")
 
@@ -213,14 +209,13 @@ async def load_vLLM(model_id: str):
             from vllm.engine.arg_utils import AsyncEngineArgs
             from vllm.engine.async_llm_engine import AsyncLLMEngine
             
-            # Use environment variable for max_model_len, default to 53840 for VRAM compatibility
             max_model_len = int(os.environ.get("MAX_MODEL_LEN", 53840))
             if max_model_len == 0:
-                max_model_len = None  # Let vLLM auto-detect
+                max_model_len = None  # auto-detect
             
             engine_args = AsyncEngineArgs(
                 model=model_path,
-                tokenizer=model_path,  # Use GGUF tokenizer
+                tokenizer=model_path,
                 gpu_memory_utilization=0.95,
                 enforce_eager=True,
                 disable_log_stats=True,
@@ -228,7 +223,6 @@ async def load_vLLM(model_id: str):
             )
             engine = AsyncLLMEngine.from_engine_args(engine_args)
             
-            # Get the actual max_model_len from the engine args or use the configured value
             if hasattr(engine_args, 'max_model_len') and engine_args.max_model_len:
                 current_max_model_len = engine_args.max_model_len
             else:
@@ -238,80 +232,58 @@ async def load_vLLM(model_id: str):
         last_activity = time.time()
         return engine
 
+def get_model_specific_context_window(model_id: str) -> int:
+    model_lower = model_id.lower()
+    if any(k in model_lower for k in ["devstral", "huihui_ai/devstral", "devstral-abliterated"]):
+        print(f"[DEBUG] Detected Devstral model: {model_id}, using context window: {DEVSTRAL_CONTEXT_WINDOW}")
+        return DEVSTRAL_CONTEXT_WINDOW
+    return REPORTED_CONTEXT_WINDOW
+
 def get_context_window_for_model(model_id: str) -> int:
-    """Get context window for a model, using actual vLLM engine if loaded, or fallback"""
     global current_max_model_len
-    
-    # If engine is loaded and matches the requested model, use actual context
     if engine and current_max_model_len:
         return current_max_model_len
-    
-    # Otherwise, use environment variable or default
-    return DEFAULT_CONTEXT_WINDOW
+    return get_model_specific_context_window(model_id)
 
 def get_reported_context_window_for_model(model_id: str) -> int:
-    """Get context window to report to clients (can be different from actual vLLM context)"""
-    # Use the reported context window (configurable via environment variable)
-    # This allows users to set a different value than the actual vLLM context window
-    return REPORTED_CONTEXT_WINDOW
+    return get_model_specific_context_window(model_id)
 
 @app.get("/v1/models")
 async def list_models_endpoint():
-    """Proxy to Ollama's /api/tags endpoint with proper context window reporting"""
+    """Proxy to Ollama's /api/tags endpoint, formatted for OpenAI and LiteLLM compatibility"""
     try:
         response = requests.get(f"{OLLAMA_URL}/api/tags", timeout=5)
         response.raise_for_status()
         ollama_data = response.json()
-        print(f"[DEBUG] Ollama /api/tags response: {json.dumps(ollama_data, indent=2)}")
-        if "models" in ollama_data:
-            ollama_models = ollama_data["models"]
-        else:
-            ollama_models = ollama_data.get("models", [])
-        print(f"[DEBUG] Found {len(ollama_models)} models")
+        
+        if "models" not in ollama_data:
+            print("[WARN] No 'models' key in Ollama response.")
+            return {"object": "list", "data": []}
+
         openai_models = []
-        for model in ollama_models:
-            model_id = model.get("name", "")
+        for model in ollama_data["models"]:
+            model_id = model.get("name")
             if not model_id:
-                print(f"[DEBUG] Skipping model with no name: {model}")
                 continue
-            size_bytes = model.get("size", 0)
-            size_gb = round(size_bytes / (1024**3), 1) if size_bytes else None
-            
-            # Get context window for this model (reported to clients)
             context_window = get_reported_context_window_for_model(model_id)
-            
-            model_info = {
+            openai_models.append({
                 "id": model_id,
                 "object": "model",
                 "created": int(time.time()),
                 "owned_by": "vllama",
                 "context_window": context_window,
-                "max_position_embeddings": context_window,
-            }
-            if size_gb:
-                model_info["size"] = f"{size_gb}GB"
-            openai_models.append(model_info)
-            print(f"[DEBUG] Added model: {model_id} (context: {context_window}, size: {size_gb}GB)")
-        response_data = {"object": "list", "data": openai_models}
-        print(f"[DEBUG] Returning {len(openai_models)} models")
-        return response_data
+            })
+
+        return {"object": "list", "data": openai_models}
+
     except requests.RequestException as e:
-        print(f"[ERROR] Ollama request failed: {e}")
         raise HTTPException(status_code=503, detail=f"Ollama service unavailable: {e}")
     except Exception as e:
-        import traceback
-        print(f"[ERROR] Unexpected error in list_models_endpoint: {e}")
-        print(f"[DEBUG] Full traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"Failed to fetch models: {e}")
 
 def _parse_tool_choice(tool_choice: Any, tools_present: bool) -> Tuple[bool, Optional[str]]:
     """
-    Returns (tool_required, required_function_name)
-    Policy:
-      - If tool_choice == "none": not required
-      - If tool_choice == "required": required
-      - If tool_choice is {"type":"function", "function":{"name":...}}: required that function
-      - Else: if tools are present and env FORCE_TOOL_FIRST_WHEN_TOOLS!=0, treat as required
+    Returns (tool_required, required_function_name) in OpenAI-compatible way.
     """
     if tool_choice == "none":
         return False, None
@@ -319,32 +291,126 @@ def _parse_tool_choice(tool_choice: Any, tools_present: bool) -> Tuple[bool, Opt
         return True, None
     if isinstance(tool_choice, dict) and tool_choice.get("type") == "function":
         return True, tool_choice.get("function", {}).get("name")
+    return False, None  # "auto" or None
 
-    # Heuristic default for Roo/Cline: if tools are present but tool_choice omitted, require tool-first.
-    force_when_tools = os.environ.get("FORCE_TOOL_FIRST_WHEN_TOOLS", "1").lower() not in ("0", "false", "no", "off")
-    if tools_present and force_when_tools:
-        return True, None
-    return False, None
+def _should_force_tools_from_conversation(messages: List[Dict[str, Any]]) -> bool:
+    if not messages:
+        return False
+    last = messages[-1]
+    if last.get("role") != "user":
+        return False
+    txt = ""
+    c = last.get("content")
+    if isinstance(c, str):
+        txt = c
+    elif isinstance(c, list):
+        txt = "\n".join(
+            part.get("text", "")
+            for part in c
+            if isinstance(part, dict) and part.get("type") == "text"
+        )
+    triggers = [
+        "You did not use a tool",
+        "Please retry with a tool use",
+        "Tool uses are formatted",
+        "<attempt_completion>",
+        "<update_todo_list>",
+        "<read_file>", "<apply_diff>", "<write_to_file>",
+        "<insert_content>", "<search_and_replace>",
+        "<list_files>", "<search_files>", "<list_code_definition_names>",
+        "<ask_followup_question>", "<switch_mode>", "<new_task>",
+    ]
+    txt_low = txt.lower()
+    return any(t.lower() in txt_low for t in triggers)
+
+def _detect_xml_tool_mode(messages: List[Dict[str, Any]]) -> bool:
+    for m in messages:
+        if m.get("role") != "system":
+            continue
+        content = m.get("content", "")
+        if isinstance(content, list):
+            text = "\n".join(part.get("text","") for part in content if isinstance(part, dict) and part.get("type")=="text")
+        else:
+            text = str(content)
+        if ("XML-style tags" in text) or ("<write_to_file>" in text) or ("</write_to_file>" in text):
+            return True
+    return False
+
+@app.post("/chat/completions")
+async def chat_completions_root(request: ChatCompletionRequest):
+    return await chat_completions(request)
 
 @app.post("/v1/chat/completions")
 async def chat_completions(request: ChatCompletionRequest):
-    """vLLM inference with Ollama model management"""
     try:
-        # Determine tool requirement
         tool_required, required_function_name = _parse_tool_choice(request.tool_choice, bool(request.tools))
+        # Pydantic v2-safe
+        try:
+            print(f"[DEBUG] Incoming ChatCompletionRequest: {request.model_dump_json()}")
+        except Exception:
+            print("[DEBUG] Incoming ChatCompletionRequest (dump failed)")
+
+        # Try to extract tools from the system message if not provided
+        if not request.tools:
+            for message in request.messages:
+                if message["role"] == "system" and isinstance(message["content"], str):
+                    tool_pattern = re.compile(r"## (\w+)\nDescription: ([^\n]+)\nParameters:\n(.+?)(?=\n## |\Z)", re.DOTALL)
+                    matches = tool_pattern.findall(message["content"])
+                    extracted_tools = []
+                    for match in matches:
+                        tool_name = match[0]
+                        tool_description = match[1]
+                        tool_parameters_str = match[2]
+                        parameters = {"type": "object", "properties": {}}
+                        required_props: List[str] = []
+                        for line in tool_parameters_str.splitlines():
+                            if not line.strip().startswith("- "):
+                                continue
+                            # "- path: (required) File path ..."
+                            try:
+                                after_dash = line.strip()[2:]
+                                pname, rest = after_dash.split(":", 1)
+                                pname = pname.strip()
+                                if "(required)" in rest:
+                                    required_props.append(pname)
+                                parameters["properties"][pname] = {"type": "string"}
+                            except Exception:
+                                continue
+                        if required_props:
+                            parameters["required"] = required_props
+                        extracted_tools.append({
+                            "type": "function",
+                            "function": {
+                                "name": tool_name,
+                                "description": tool_description,
+                                "parameters": parameters
+                            }
+                        })
+                    if extracted_tools:
+                        request.tools = extracted_tools
+                        if not request.tool_choice:
+                            request.tool_choice = "auto"
+                        break
+
+        force_tools_from_error = _should_force_tools_from_conversation(request.messages)
+        xml_tool_mode = _detect_xml_tool_mode(request.messages)
+
+        if not tool_required and force_tools_from_error:
+            print("[DEBUG] Forcing tool use due to Roo tool-use error in last user message.")
+            tool_required = True
+
         print(f"[DEBUG] tools_present={bool(request.tools)} tool_choice={request.tool_choice!r} "
-              f"tool_required={tool_required} required_function={required_function_name}")
+              f"tool_required={tool_required} required_function={required_function_name} xml_tool_mode={xml_tool_mode}")
 
-        # Lazy load vLLM engine
-        engine = await load_vLLM(request.model)
+        engine_instance = await load_vLLM(request.model)
 
-        # Convert messages to model-specific prompt format
         prompt, seeded_tool_prefix = build_model_prompt(
             request.messages,
             request.model,
             request.tools,
             force_tools=tool_required,
-            required_function_name=required_function_name
+            required_function_name=required_function_name,
+            xml_tool_mode=xml_tool_mode,
         )
         print(f"[DEBUG] Generated prompt: {prompt[:200]}...")
         if tool_required and seeded_tool_prefix:
@@ -353,22 +419,20 @@ async def chat_completions(request: ChatCompletionRequest):
         sampling_params = SamplingParams(
             temperature=request.temperature,
             top_p=request.top_p,
-            max_tokens=request.max_tokens or MAX_TOKENS_DEFAULT,  # use default if client omitted
+            max_tokens=request.max_tokens or MAX_TOKENS_DEFAULT,
             repetition_penalty=request.repetition_penalty,
             stop=[
                 "</s>", "[/INST]", "<|im_start|>assistant",
-                "[/ASSISTANT]",  # helps DevStral-like tags
+                "[/ASSISTANT]",
                 "[thinking]", "[/thinking]", "[plan]", "[/plan]",
                 "[scratchpad]", "[/scratchpad]", "[internal]", "[/internal]",
                 "Roo has a question",
-                "Roo wants to read this file",
                 "[USER][ERROR]",
                 "Roo is having trouble..."
             ]
         )
 
-        # Generate with vLLM
-        results_generator = engine.generate(prompt, sampling_params, request_id=random_uuid())
+        results_generator = engine_instance.generate(prompt, sampling_params, request_id=random_uuid())
 
         if request.stream:
             async def stream_results():
@@ -377,39 +441,73 @@ async def chat_completions(request: ChatCompletionRequest):
                 created_time = int(time.time())
 
                 def sse_delta_content(text: str) -> str:
-                    return (
-                        "data: "
-                        + json.dumps({
-                            'id': f'chatcmpl-{created_time}-{request_id_[:8]}',
-                            'object':'chat.completion.chunk',
-                            'created': created_time,
-                            'model': request.model,
-                            'choices':[{'index':0,'delta': {'content': text},'finish_reason': None}]
-                        })
-                        + "\n\n"
-                    )
+                    return "data: " + json.dumps({
+                        'id': f'chatcmpl-{created_time}-{request_id_[:8]}',
+                        'object':'chat.completion.chunk',
+                        'created': created_time,
+                        'model': request.model,
+                        'choices':[{'index':0,'delta': {'content': text},'finish_reason': None}]
+                    }) + "\n\n"
 
-                def sse_delta_tool_calls(tool_calls: List[Dict[str, Any]]) -> str:
-                    return (
-                        "data: "
-                        + json.dumps({
-                            'id': f'chatcmpl-{created_time}-{request_id_[:8]}',
-                            'object':'chat.completion.chunk',
-                            'created': created_time,
-                            'model': request.model,
-                            'choices':[{'index':0,'delta': {'tool_calls': tool_calls},'finish_reason': None}]
-                        })
-                        + "\n\n"
-                    )
+                def sse_delta_role() -> str:
+                    return "data: " + json.dumps({
+                        'id': f'chatcmpl-{created_time}-{request_id_[:8]}',
+                        'object': 'chat.completion.chunk',
+                        'created': created_time,
+                        'model': request.model,
+                        'choices': [{'index': 0, 'delta': {'role': 'assistant'}, 'finish_reason': None}]
+                    }) + "\n\n"
 
-                # Initial role chunk
-                yield "data: " + json.dumps({
-                    'id': f'chatcmpl-{created_time}-{request_id_[:8]}',
-                    'object': 'chat.completion.chunk',
-                    'created': created_time,
-                    'model': request.model,
-                    'choices': [{'index': 0, 'delta': {'role': 'assistant'}, 'finish_reason': None}]
-                }) + "\n\n"
+                # Tool-call streaming helpers (non-XML mode only)
+                def sse_delta_tool_name(i: int, name: str) -> str:
+                    return "data: " + json.dumps({
+                        'id': f'chatcmpl-{created_time}-{request_id_[:8]}',
+                        'object': 'chat.completion.chunk',
+                        'created': created_time,
+                        'model': request.model,
+                        'choices': [{
+                            'index': 0,
+                            'delta': {'tool_calls': [{
+                                'index': i,
+                                'id': random_uuid(),
+                                'type': 'function',
+                                'function': {'name': name}
+                            }]},
+                            'finish_reason': None
+                        }]
+                    }) + "\n\n"
+
+                def sse_delta_tool_args(i: int, args_str: str) -> str:
+                    return "data: " + json.dumps({
+                        'id': f'chatcmpl-{created_time}-{request_id_[:8]}',
+                        'object': 'chat.completion.chunk',
+                        'created': created_time,
+                        'model': request.model,
+                        'choices': [{
+                            'index': 0,
+                            'delta': {'tool_calls': [{
+                                'index': i,
+                                'function': {'arguments': args_str}
+                            }]},
+                            'finish_reason': None
+                        }]
+                    }) + "\n\n"
+
+                def sse_finish_tool_calls() -> str:
+                    return "data: " + json.dumps({
+                        'id': f'chatcmpl-{created_time}-{request_id_[:8]}',
+                        'object': 'chat.completion.chunk',
+                        'created': created_time,
+                        'model': request.model,
+                        'choices': [{
+                            'index': 0,
+                            'delta': {},
+                            'finish_reason': 'tool_calls'
+                        }]
+                    }) + "\n\n"
+
+                # Initial assistant role chunk
+                yield sse_delta_role()
 
                 buffer = ""
                 tool_calls_sent = False
@@ -420,95 +518,80 @@ async def chat_completions(request: ChatCompletionRequest):
                     previous_text = new_text
                     buffer += delta
 
-                    # Branch A: classic [TOOL_CALLS][ ... ] in generated text
-                    match_tagged = re.search(r"\[TOOL_CALLS\]\[(.*?)\]", buffer, re.DOTALL)
+                    if not xml_tool_mode:
+                        match_tagged = re.search(r"\[TOOL_CALLS\]\[(.*?)\]", buffer, re.DOTALL)
+                        match_seeded = None
+                        if (not match_tagged) and (tool_required and seeded_tool_prefix):
+                            m = re.search(r"^\s*\[(.*?)\]", buffer, re.DOTALL)
+                            if m:
+                                match_seeded = m
 
-                    # Branch B: seeded prefix -> generation starts with just a JSON array
-                    match_seeded = None
-                    if (not match_tagged) and (tool_required and seeded_tool_prefix):
-                        # Look for a leading [...] array
-                        m = re.search(r"^\s*\[(.*?)\]", buffer, re.DOTALL)
-                        if m:
-                            match_seeded = m
+                        if (match_tagged or match_seeded) and not tool_calls_sent:
+                            if match_tagged:
+                                before = buffer[:match_tagged.start()]
+                                json_str = match_tagged.group(1)
+                                after = buffer[match_tagged.end():]
+                            else:
+                                before = buffer[:match_seeded.start()]
+                                json_str = match_seeded.group(1)
+                                after = buffer[match_seeded.end():]
 
-                    if (match_tagged or match_seeded) and not tool_calls_sent:
-                        if match_tagged:
-                            before = buffer[:match_tagged.start()]
-                            json_str = match_tagged.group(1)
-                            after = buffer[match_tagged.end():]
-                            which = "tagged"
-                        else:
-                            before = buffer[:match_seeded.start()]
-                            json_str = match_seeded.group(1)
-                            after = buffer[match_seeded.end():]
-                            which = "seeded"
-                        print(f"[DEBUG] Detected tool-call block via {which} branch.")
+                            if not tool_required:
+                                clean_before = sanitize_visible_text(before, for_stream=True)
+                                if clean_before:
+                                    yield sse_delta_content(clean_before)
 
-                        # If tools are required, suppress pre-tool prose
-                        if not tool_required:
-                            clean_before = sanitize_visible_text(before, for_stream=True)
-                            if clean_before:
-                                yield sse_delta_content(clean_before)
+                            try:
+                                parsed_tool_calls = json.loads(f"[{json_str}]")
+                            except json.JSONDecodeError:
+                                fallback = sanitize_visible_text("[TOOL_CALLS][" + json_str + "]", for_stream=True)
+                                if fallback and not tool_required:
+                                    yield sse_delta_content(fallback)
+                                buffer = after
+                                continue
 
-                        # Parse and emit tool_calls
-                        try:
-                            parsed_tool_calls = json.loads(f"[{json_str}]")
-                            if required_function_name:
-                                if not any(tc.get("name") == required_function_name for tc in parsed_tool_calls):
-                                    print(f"[WARN] Required function '{required_function_name}' not present in TOOL_CALLS.")
-                            tool_calls = []
-                            for tc in parsed_tool_calls:
-                                tool_calls.append({
-                                    "id": random_uuid(),
-                                    "type": "function",
-                                    "function": {
-                                        "name": tc["name"],
-                                        "arguments": json.dumps(tc.get("arguments", {}))
-                                    }
-                                })
-                            yield sse_delta_tool_calls(tool_calls)
+                            for i, tc in enumerate(parsed_tool_calls):
+                                name = tc.get("name", "")
+                                args = json.dumps(tc.get("arguments", {}))
+                                yield sse_delta_tool_name(i, name)
+                                yield sse_delta_tool_args(i, args)
+
                             tool_calls_sent = True
-                        except json.JSONDecodeError:
-                            # If JSON is malformed, emit sanitized literal as content only if tools aren't strictly required
-                            fallback = sanitize_visible_text("[TOOL_CALLS][" + json_str + "]", for_stream=True)
-                            if fallback and not tool_required:
-                                yield sse_delta_content(fallback)
+                            buffer = ""
+                            yield sse_finish_tool_calls()
+                            yield "data: [DONE]\n\n"
+                            return
 
-                        # Continue after the tool block; DO NOT re-emit the block
-                        buffer = after
-
-                    # Emit sanitized content ONLY if tools are not required, or after tool calls were sent
+                    # XML mode or normal prose: stream sanitized text
                     clean = sanitize_visible_text(buffer, for_stream=True)
-                    if clean and (not tool_required or tool_calls_sent):
+                    if clean and not tool_calls_sent:
                         yield sse_delta_content(clean)
                         buffer = ""
 
-                    if result.finished:
-                        # Calculate token usage for final chunk
-                        prompt_tokens = len(prompt.split()) // 4  # Rough estimate
-                        completion_tokens = len(previous_text.split()) // 4
-                        
-                        # Try to get more accurate token counts from vLLM
+                    if result.finished and not tool_calls_sent:
+                        # Token usage (try accurate, else fallback)
+                        prompt_tokens = len(prompt.split())
+                        completion_tokens = len(previous_text.split())
                         try:
-                            # For AsyncLLMEngine, we need to access the tokenizer differently
-                            if hasattr(engine, 'get_tokenizer'):
-                                tokenizer = engine.get_tokenizer()
-                                if hasattr(tokenizer, 'encode'):
-                                    prompt_tokens = len(tokenizer.encode(prompt))
-                                    completion_tokens = len(tokenizer.encode(previous_text))
+                            get_tok = getattr(engine_instance, "get_tokenizer", None)
+                            if get_tok is not None:
+                                tok = get_tok()
+                                if asyncio.iscoroutine(tok):
+                                    tok = await tok  # <-- await the coroutine
+                                if hasattr(tok, "encode"):
+                                    prompt_tokens = len(tok.encode(prompt))
+                                    completion_tokens = len(tok.encode(previous_text))
                         except Exception as e:
                             print(f"[DEBUG] Could not use vLLM tokenizer for streaming token counting: {e}")
-                        
+
                         total_tokens = prompt_tokens + completion_tokens
                         actual_context_window = current_max_model_len or DEFAULT_CONTEXT_WINDOW
                         reported_context_window = get_reported_context_window_for_model(request.model)
                         context_usage_percent = (total_tokens / reported_context_window) * 100 if reported_context_window > 0 else 0
-                        
                         print(f"[DEBUG] Streaming context usage: {total_tokens}/{reported_context_window} tokens ({context_usage_percent:.1f}%) [actual: {actual_context_window}]")
-                        
+
                         finish_reason = result.outputs[0].finish_reason if result.outputs[0].finish_reason else "stop"
-                        
-                        # Final chunk with usage information
+
                         yield "data: " + json.dumps({
                             'id': f'chatcmpl-{created_time}-{request_id_[:8]}',
                             'object': 'chat.completion.chunk',
@@ -523,7 +606,8 @@ async def chat_completions(request: ChatCompletionRequest):
                                 'context_usage_percent': round(context_usage_percent, 1)
                             }
                         }) + "\n\n"
-                        yield "data: [DONE]\n\n"  # End of stream
+                        yield "data: [DONE]\n\n"
+
             return StreamingResponse(stream_results(), media_type="text/event-stream")
         else:
             final_output = None
@@ -533,86 +617,86 @@ async def chat_completions(request: ChatCompletionRequest):
             if not final_output or not final_output.outputs:
                 raise HTTPException(status_code=500, detail="Generation failed - no output")
 
-            generated_text = final_output.outputs[0].text.strip()
-
-            # Extract tool calls (if any) and sanitize content
+            generated_text = (final_output.outputs[0].text or "").strip()
             tool_calls: List[Dict[str, Any]] = []
             content = generated_text
 
-            # Branch A: classic [TOOL_CALLS][...]
-            tool_calls_pattern = r"\[TOOL_CALLS\]\[(.*?)\]"
-            match = re.search(tool_calls_pattern, generated_text, re.DOTALL)
+            if not xml_tool_mode:
+                tool_calls_pattern = r"\[TOOL_CALLS\]\[(.*?)\]"
+                match = re.search(tool_calls_pattern, generated_text, re.DOTALL)
 
-            # Branch B: seeded prefix -> generation is just a JSON array
-            if not match and (tool_required and seeded_tool_prefix):
-                m2 = re.search(r"^\s*\[(.*?)\]\s*$", generated_text, re.DOTALL)
-                if m2:
-                    print("[DEBUG] Non-stream detected tool-call block via seeded branch.")
+                if not match and (tool_required and seeded_tool_prefix):
+                    m2 = re.search(r"^\s*\[(.*?)\]\s*$", generated_text, re.DOTALL)
+                    if m2:
+                        print("[DEBUG] Non-stream detected tool-call block via seeded branch.")
+                        try:
+                            parsed = json.loads("[" + m2.group(1) + "]")
+                            for tc in parsed:
+                                tool_calls.append({
+                                    "id": random_uuid(),
+                                    "type": "function",
+                                    "function": {"name": tc["name"], "arguments": json.dumps(tc.get("arguments", {}))}
+                                })
+                            content = ""
+                        except json.JSONDecodeError:
+                            pass
+
+                if match and not tool_calls:
+                    json_str = match.group(1)
                     try:
-                        parsed = json.loads("[" + m2.group(1) + "]")
-                        for tc in parsed:
+                        parsed_tool_calls = json.loads(json_str)
+                        if required_function_name and not any(tc.get("name") == required_function_name for tc in parsed_tool_calls):
+                            print(f"[WARN] Required function '{required_function_name}' not found in TOOL_CALLS (non-stream).")
+                        for tc in parsed_tool_calls:
                             tool_calls.append({
                                 "id": random_uuid(),
                                 "type": "function",
                                 "function": {"name": tc["name"], "arguments": json.dumps(tc.get("arguments", {}))}
                             })
-                        content = ""  # no user-visible prose when tools are used
+                        content = re.sub(tool_calls_pattern, "", generated_text, 1, re.DOTALL).strip()
                     except json.JSONDecodeError:
-                        pass  # fall through to normal handling
+                        print(f"[ERROR] Failed to parse tool calls JSON: {json_str}")
 
-            if match and not tool_calls:
-                json_str = match.group(1)
-                try:
-                    parsed_tool_calls = json.loads(json_str)
-                    if required_function_name and not any(tc.get("name") == required_function_name for tc in parsed_tool_calls):
-                        print(f"[WARN] Required function '{required_function_name}' not found in TOOL_CALLS (non-stream).")
-                    for tc in parsed_tool_calls:
-                        tool_calls.append({
-                            "id": random_uuid(),
-                            "type": "function",
-                            "function": {"name": tc["name"], "arguments": json.dumps(tc.get("arguments", {}))}
-                        })
-                    # Remove the tool calls from the visible content
-                    content = re.sub(tool_calls_pattern, "", generated_text, 1, re.DOTALL).strip()
-                except json.JSONDecodeError:
-                    print(f"[ERROR] Failed to parse tool calls JSON: {json_str}")
-                    # Keep content as-is if parsing fails
+            # In XML mode, tools are in content. Ensure we never return an empty message.
+            content = sanitize_visible_text(content, for_stream=False)
+            if not tool_calls and (content is None or content == ""):
+                # Avoid "no assistant message" client errors
+                content = " "
 
-            # Enforce tool requirement in non-stream mode
-            if tool_required and not tool_calls:
+            # Enforce tool requirement only for non-XML OpenAI-tools mode
+            if tool_required and not xml_tool_mode and not tool_calls:
                 raise HTTPException(
                     status_code=400,
                     detail="Tool use required by client (tool_choice) but no tool calls were produced."
                 )
 
-            content = sanitize_visible_text(content, for_stream=False)
-
-            print(f"[DEBUG] Generated {len(generated_text)} characters")
-
-            # Get actual token counts from vLLM if available, otherwise estimate
-            prompt_tokens = len(prompt.split()) // 4  # Rough estimate
-            completion_tokens = len(generated_text.split()) // 4
-            
-            # Try to get more accurate token counts from vLLM
+            # Token usage
+            prompt_tokens = len(prompt.split())
+            completion_tokens = len(generated_text.split())
             try:
-                # For AsyncLLMEngine, we need to access the tokenizer differently
-                if hasattr(engine, 'get_tokenizer'):
-                    tokenizer = engine.get_tokenizer()
-                    if hasattr(tokenizer, 'encode'):
-                        prompt_tokens = len(tokenizer.encode(prompt))
-                        completion_tokens = len(tokenizer.encode(generated_text))
+                get_tok = getattr(engine_instance, "get_tokenizer", None)
+                if get_tok is not None:
+                    tok = get_tok()
+                    if asyncio.iscoroutine(tok):
+                        tok = await tok  # <-- await the coroutine
+                    if hasattr(tok, "encode"):
+                        prompt_tokens = len(tok.encode(prompt))
+                        completion_tokens = len(tok.encode(generated_text))
                         print(f"[DEBUG] Accurate token count - prompt: {prompt_tokens}, completion: {completion_tokens}")
             except Exception as e:
                 print(f"[DEBUG] Could not use vLLM tokenizer for token counting: {e}")
-                # Fall back to rough estimate
 
             total_tokens = prompt_tokens + completion_tokens
-            
-            # Log context usage for debugging
             actual_context_window = current_max_model_len or DEFAULT_CONTEXT_WINDOW
             reported_context_window = get_reported_context_window_for_model(request.model)
             context_usage_percent = (total_tokens / reported_context_window) * 100 if reported_context_window > 0 else 0
             print(f"[DEBUG] Context usage: {total_tokens}/{reported_context_window} tokens ({context_usage_percent:.1f}%) [actual: {actual_context_window}]")
+
+            finish_reason = final_output.outputs[0].finish_reason if final_output.outputs[0].finish_reason else "stop"
+            if tool_calls and not xml_tool_mode:
+                finish_reason = "tool_calls"
+                # If tool_calls are present, many OpenAI clients ignore content by spec; keep it None.
+                content = None
 
             return {
                 "id": f"chatcmpl-{int(time.time())}-{random_uuid()[:8]}",
@@ -621,15 +705,15 @@ async def chat_completions(request: ChatCompletionRequest):
                 "model": request.model,
                 "choices": [{
                     "index": 0,
-                    "message": {"role": "assistant", "content": content if content else None, "tool_calls": tool_calls or None},
-                    "finish_reason": final_output.outputs[0].finish_reason if final_output.outputs[0].finish_reason else "stop"
+                    "message": {"role": "assistant", "content": content if content is not None else " ", "tool_calls": tool_calls or None},
+                    "finish_reason": finish_reason
                 }],
                 "usage": {
                     "prompt_tokens": prompt_tokens,
-                    "completion_tokens": completion_tokens,
-                    "total_tokens": total_tokens,
-                    "context_window": reported_context_window,  # Add context window info for Roo Code
-                    "context_usage_percent": round(context_usage_percent, 1)  # Add usage percentage
+                    "completion_tokens": completion_tokens if not tool_calls else 0,
+                    "total_tokens": total_tokens if not tool_calls else prompt_tokens,
+                    "context_window": reported_context_window,
+                    "context_usage_percent": round(context_usage_percent, 1)
                 },
                 "logprobs": None,
                 "system_fingerprint": None
@@ -642,29 +726,25 @@ async def chat_completions(request: ChatCompletionRequest):
         print(f"[DEBUG] Full traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"Inference failed: {str(e)}")
 
-# ---------- Prompt builder (DevStral-aware, with force-tools mode) ----------
+# ---------- Prompt builder (DevStral-aware, with force-tools mode & XML mode) ----------
 def build_model_prompt(
     messages: List[Dict[str, Any]],
     model_id: str,
     tools: Optional[List[Dict[str, Any]]] = None,
     *,
     force_tools: bool = False,
-    required_function_name: Optional[str] = None
+    required_function_name: Optional[str] = None,
+    xml_tool_mode: bool = False,
 ) -> Tuple[str, bool]:
     """
-    Builds a prompt. If the model looks like DevStral, use DevStral tag format:
-      [SYSTEM_PROMPT]...[/SYSTEM_PROMPT]
-      [AVAILABLE_TOOLS]...[/AVAILABLE_TOOLS]
-      [USER]...[/USER]
-      [ASSISTANT]...[/ASSISTANT]
-    Returns (prompt, seeded_tool_prefix) where seeded_tool_prefix==True
-    when the prompt ends with [ASSISTANT][TOOL_CALLS] to force tool-call-first.
+    Builds a prompt. If the model looks like DevStral, use DevStral tag format.
+    Returns (prompt, seeded_tool_prefix).
     """
     def only_text(content):
         if isinstance(content, str):
             return content
         if isinstance(content, list):
-            return "\n".join(part.get("text","") for part in content if part.get("type") == "text")
+            return "\n".join(part.get("text","") for part in content if isinstance(part, dict) and part.get("type") == "text")
         return ""
 
     model_lc = (model_id or "").lower()
@@ -675,29 +755,43 @@ def build_model_prompt(
     if devstral_like:
         sys_lines = ["You are a fast, helpful assistant."]
         if force_tools:
-            sys_lines += [
-                "TOOLS ARE REQUIRED for this reply.",
-                "Output ONLY a single tool call JSON array.",
-                "Do not output any other text."
-            ]
-            if required_function_name:
-                sys_lines.append(
-                    f"You MUST call the function named \"{required_function_name}\" in the tool calls."
-                )
+            if xml_tool_mode:
+                sys_lines += [
+                    "TOOLS ARE REQUIRED for this reply.",
+                    "Output EXACTLY ONE tool invocation using the XML tag schema required by the user (e.g., <write_to_file>...</write_to_file>).",
+                    "Do not output any other text before or after the XML.",
+                    # Provide a tiny example to anchor the format (not content).
+                    "Example format (do NOT reuse these values):",
+                    "<write_to_file><path>README.md</path><content>...</content><line_count>42</line_count></write_to_file>",
+                ]
+                if required_function_name:
+                    sys_lines.append(f"When choosing which tool to invoke, prefer the function named '{required_function_name}'.")
+            else:
+                sys_lines += [
+                    "TOOLS ARE REQUIRED for this reply.",
+                    "Output ONLY a single tool call JSON array.",
+                    "Do not output any other text."
+                ]
+                if required_function_name:
+                    sys_lines.append(f"You MUST call the function named '{required_function_name}'.")
         else:
-            sys_lines += [
-                "Do NOT output analysis, plans, or hidden thoughts.",
-                "If you use a tool, output ONLY [TOOL_CALLS][…]. Otherwise output ONLY the final answer text.",
-            ]
+            if xml_tool_mode:
+                sys_lines += [
+                    "If you use a tool, output ONLY the XML tool invocation with the required tags.",
+                    "Otherwise output ONLY the final answer text.",
+                ]
+            else:
+                sys_lines += [
+                    "Do NOT output analysis, plans, or hidden thoughts.",
+                    "If you use a tool, output ONLY [TOOL_CALLS][…]. Otherwise output ONLY the final answer text.",
+                ]
 
         sys_msg = next((m for m in messages if m.get("role") == "system"), None)
         if sys_msg:
             sys_lines.append(only_text(sys_msg.get("content")))
         system_block = f"[SYSTEM_PROMPT]{'\n'.join(sys_lines)}[/SYSTEM_PROMPT]\n"
 
-        tools_block = ""
-        if tools:
-            tools_block = f"[AVAILABLE_TOOLS]{json.dumps(tools)}[/AVAILABLE_TOOLS]\n"
+        tools_block = f"[AVAILABLE_TOOLS]{json.dumps(tools)}[/AVAILABLE_TOOLS]\n" if tools else ""
 
         conv = []
         for m in messages:
@@ -706,7 +800,7 @@ def build_model_prompt(
             if not content:
                 continue
             if role == "system":
-                continue  # already included
+                continue
             elif role == "user":
                 conv.append(f"[USER]{content}[/USER]")
             elif role == "assistant":
@@ -714,10 +808,14 @@ def build_model_prompt(
             else:
                 conv.append(f"[USER]{content}[/USER]")
 
-        # For tool-required flows, seed the assistant with [TOOL_CALLS] to bias DevStral to emit only the JSON array.
         if force_tools:
-            prompt = system_block + tools_block + "\n".join(conv) + "\n[ASSISTANT][TOOL_CALLS]"
-            seeded_tool_prefix = True
+            if xml_tool_mode:
+                # Let the model emit XML directly
+                prompt = system_block + tools_block + "\n".join(conv) + "\n[ASSISTANT]"
+                seeded_tool_prefix = False
+            else:
+                prompt = system_block + tools_block + "\n".join(conv) + "\n[ASSISTANT][TOOL_CALLS]"
+                seeded_tool_prefix = True
         else:
             prompt = system_block + tools_block + "\n".join(conv) + "\n[ASSISTANT]"
 
@@ -725,9 +823,20 @@ def build_model_prompt(
     else:
         # Fallback: Llama chat style with optional force_tools hint baked into system
         prompt_parts = []
-        system_instruction = "You are a helpful assistant. You can use tools to assist the user."
-        if force_tools:
+        if xml_tool_mode:
+            system_instruction = (
+                "You are a helpful assistant. The user expects literal XML tool invocations.\n"
+                "If tools are required, output EXACTLY ONE tool invocation using the XML tag schema and nothing else.\n"
+                "Example: <write_to_file><path>README.md</path><content>...</content><line_count>42</line_count></write_to_file>"
+            )
+        else:
+            system_instruction = "You are a helpful assistant. You can use tools to assist the user."
+
+        if force_tools and not xml_tool_mode:
             system_instruction += "\nTOOLS ARE REQUIRED. Do not output any text except a valid tool call representation."
+        elif force_tools and xml_tool_mode:
+            system_instruction += "\nTOOLS ARE REQUIRED. Output only the XML tool invocation; do not include extra prose."
+
         if tools:
             tools_json = json.dumps(tools)
             system_instruction += f"\n[AVAILABLE_TOOLS]{tools_json}[/AVAILABLE_TOOLS]"
@@ -747,14 +856,12 @@ def build_model_prompt(
                 prompt_parts.append(f"[INST] {content} [/INST]")
             elif role == "assistant":
                 prompt_parts.append(f"{content}")
-        if force_tools:
-            # Seed assistant tool-calls start token for non-devstral too
+        if force_tools and not xml_tool_mode:
             return "<s>" + " ".join(prompt_parts) + "</s>" + "\n[TOOL_CALLS]", True
         return "<s>" + " ".join(prompt_parts) + "</s>", False
 
 @app.get("/health")
 async def health_check():
-    """Health check endpoint"""
     global engine, current_max_model_len
     async with engine_lock:
         engine_status = "loaded" if engine else "unloaded"
@@ -768,7 +875,6 @@ async def health_check():
 
 @app.get("/v1/context")
 async def get_context_info():
-    """Get current context window and usage information"""
     global engine, current_max_model_len
     async with engine_lock:
         reported_context = get_reported_context_window_for_model("context_check")
@@ -789,31 +895,28 @@ async def get_context_info():
 
 @app.get("/v1/model/info")
 async def litellm_model_info():
-    """LiteLLM-compatible model info endpoint for dynamic context window reporting"""
     try:
         response = requests.get(f"{OLLAMA_URL}/api/tags", timeout=5)
         response.raise_for_status()
         ollama_data = response.json()
         
-        if "models" in ollama_data:
-            ollama_models = ollama_data["models"]
-        else:
-            ollama_models = ollama_data.get("models", [])
-        
+        if "models" not in ollama_data:
+            print("[WARN] No 'models' key in Ollama response.")
+            return {"data": []}
+
         model_data = []
-        for model in ollama_models:
-            model_id = model.get("name", "")
+        for model in ollama_data["models"]:
+            model_id = model.get("name")
             if not model_id:
                 continue
             
-            # Get the reported context window for this model
             context_window = get_reported_context_window_for_model(model_id)
             
             model_data.append({
                 "model_name": model_id,
                 "model_info": {
                     "max_tokens": MAX_TOKENS_DEFAULT,
-                    "max_input_tokens": context_window,  # This becomes contextWindow in Roo Code
+                    "max_input_tokens": context_window,
                     "supports_vision": False,
                     "supports_prompt_caching": False,
                     "supports_computer_use": False,
@@ -828,21 +931,16 @@ async def litellm_model_info():
         return {"data": model_data}
         
     except requests.RequestException as e:
-        print(f"[ERROR] Ollama request failed in model/info: {e}")
         raise HTTPException(status_code=503, detail=f"Ollama service unavailable: {e}")
     except Exception as e:
-        print(f"[ERROR] Unexpected error in model/info: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to fetch model info: {e}")
 
 @app.get("/v1")
 async def openai_root():
-    """OpenAI compatibility root"""
     return {"message": "vllama OpenAI-compatible API", "port": 11435}
 
-# Manual unload endpoint
 @app.post("/unload")
 async def manual_unload():
-    """Manual unload of vLLM engine (cleans VRAM)"""
     global engine
     async with engine_lock:
         if engine:
@@ -855,4 +953,11 @@ async def manual_unload():
 
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=11435, log_level="info")
+    import argparse
+    parser = argparse.ArgumentParser(description="vllama - vLLM + Ollama hybrid server")
+    parser.add_argument("--host", type=str, default="0.0.0.0", help="Host address to bind to")
+    parser.add_argument("--port", type=int, default=11435, help="Port to listen on")
+    parser.add_argument("--log-level", type=str, default="info", help="Logging level (e.g., debug, info, warning, error)")
+    args = parser.parse_args()
+
+    uvicorn.run(app, host=args.host, port=args.port, log_level=args.log_level)

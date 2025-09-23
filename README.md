@@ -98,6 +98,7 @@ sudo tee /etc/systemd/system/vllama.service.d/custom.conf > /dev/null <<EOF
 Environment="IDLE_TIMEOUT=600"
 Environment="MAX_MODEL_LEN=65536"
 Environment="REPORTED_CONTEXT_WINDOW=65536"
+Environment="DEVSTRAL_CONTEXT_WINDOW=65536"
 EOF
 
 # Reload and restart service
@@ -115,17 +116,31 @@ vllama provides accurate context length reporting to clients like Roo Code throu
 |----------|-------------|---------|
 | `MAX_MODEL_LEN` | Maximum model length for vLLM (0 = auto-detect) | `65536` |
 | `REPORTED_CONTEXT_WINDOW` | Context window reported to clients (overrides actual) | `65536` |
+| `DEVSTRAL_CONTEXT_WINDOW` | Context window specifically for Devstral models | `65536` |
 | `IDLE_TIMEOUT` | Seconds before unloading vLLM from VRAM | `300` |
 | `MAX_TOKENS_DEFAULT` | Default max tokens for completions | `1024` |
 
 ### Context Window Determination
 
-The reported context window is determined in the following priority order:
+The reported context window is determined using model-specific detection:
 
-1. **REPORTED_CONTEXT_WINDOW environment variable** (if set) - allows overriding reported context independently of actual vLLM context
-2. **Actual vLLM engine context** (when engine is loaded) - real context from loaded model
-3. **MAX_MODEL_LEN environment variable** (if set) - configured maximum model length
+1. **Devstral Models** - Uses `DEVSTRAL_CONTEXT_WINDOW` (default: 65536)
+   - Detects: `devstral`, `huihui_ai/devstral`, `devstral-abliterated`
+   - Example: `huihui_ai/devstral-abliterated:latest` → 65536 tokens
+2. **Other Models** - Uses `REPORTED_CONTEXT_WINDOW` (default: 65536)
+3. **Actual vLLM engine context** (when engine is loaded) - real context from loaded model
 4. **Default fallback** (65536) - safe default for most models
+
+### Model-Specific Configuration
+
+For Devstral models, you can override the context window independently:
+
+```bash
+# Set Devstral models to 32k context while keeping others at 128k
+export DEVSTRAL_CONTEXT_WINDOW=32768
+export REPORTED_CONTEXT_WINDOW=131072
+python3 vllama.py
+```
 
 ### Context Information Endpoints
 
