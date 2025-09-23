@@ -1,18 +1,16 @@
 # vllama: Faster Ollama Inference with vLLM Acceleration 🚀
 
-vllama is an open source hybrid server that combines Ollama's seamless model management with vLLM's lightning-fast GPU inference, delivering a drop-in OpenAI-compatible API for optimized performance. If you're searching for Ollama performance optimizations, ways to speed up Ollama inference, or Ollama GPU acceleration techniques, vllama bridges the gap by using vLLM for high-speed generation while borrowing Ollama's repository for GGUF models. It runs on port 11435 as a faster alternative to Ollama (port 11434), with lazy model loading to VRAM on demand and automatic unloading when idle—ideal for efficient resource use in multi-user setups.
+vllama is an open-source hybrid server that combines Ollama's seamless model management with vLLM's lightning-fast GPU inference, delivering a drop-in OpenAI-compatible API for optimized performance. If you're searching for Ollama performance optimizations, ways to speed up Ollama inference, or Ollama GPU acceleration techniques, vllama bridges the gap by using vLLM for high-speed generation while borrowing Ollama's repository for GGUF models. It runs on port 11435 as a faster alternative to Ollama (port 11434), with lazy model loading to VRAM on demand and automatic unloading when idle—ideal for efficient resource use in multi-user setups.
 
-At the moment this has been developed for my personal purposes, but it might work with other models and setups also. I am using my favorite model Devstral Small with RTX 3090 Ti on Arch Linux, and this combo is proven to work. I will add support for more models as I need them, but PRs are welcome. 
+At the moment, this has been developed for personal purposes, but it works with a variety of models and setups. The developer is using their favorite model, Devstral Small, with an RTX 3090 Ti on Arch Linux, and this combo is proven to work. More model support will be added as needed, but pull requests are welcome.
 
 ## Vision
 
-The vision for vllama is to make high-performance AI inference accessible and efficient for everyone using Ollama models. By integrating vLLM's advanced GPU optimizations, it addresses common pain points like slow Ollama inference on large models while maintaining Ollama's simple pull-and-run workflow. Whether you're looking for OpenAI compatible vLLM server solutions or methods to unload vLLM model when idle, vllama aims to be the go-to tool for users wanting faster Ollama with vLLM without sacrificing ease of use. It's designed for developers, families sharing hardware, or anyone optimizing Ollama on NVIDIA GPUs like RTX 3090 Ti, emphasizing open source principles and automation ideas for deployment.
+The vision for vllama is to make high-performance AI inference accessible and efficient for everyone using Ollama models. By integrating vLLM's advanced GPU optimizations, it addresses common pain points like slow Ollama inference on large models while maintaining Ollama's simple pull-and-run workflow. Whether you're looking for OpenAI-compatible vLLM server solutions or methods to unload vLLM models when idle, vllama aims to be the go-to tool for users wanting faster Ollama with vLLM without sacrificing ease of use. It's designed for developers, families sharing hardware, or anyone optimizing Ollama on NVIDIA GPUs like RTX 3090 Ti, emphasizing open-source principles and automation ideas for deployment.
 
-## Quick start
+## Quick Start
 
-If you are using Arch Linux, installation is easy.
-
-#### AUR Installation (as system service)
+### AUR Installation (as system service)
 
 The AUR package includes a bundled venv312 for dependency isolation.
 
@@ -29,7 +27,7 @@ curl http://localhost:11435/v1/models
 
 The AUR package includes a bundled venv312 environment and systemd service. After installation, enable the service for automatic startup.
 
-```
+```bash
 # Install from AUR (includes venv312 and service files)
 pikaur -S vllama
 
@@ -75,7 +73,7 @@ ollama pull huihui_ai/devstral-abliterated
 
 #### Running development environment
 
-```
+```bash
 # Activate Python 3.12 environment
 source venv312/bin/activate
 
@@ -90,127 +88,175 @@ curl http://localhost:11435/v1/models
 curl http://localhost:11435/health
 ```
 
-## Post-install customizations
+## Post-install Customizations
 
-```
+```bash
 # Override defaults without editing package files
 sudo mkdir -p /etc/systemd/system/vllama.service.d
 sudo tee /etc/systemd/system/vllama.service.d/custom.conf > /dev/null <<EOF
 [Service]
-Environment="IDLE_TIMEOUT=600"  # 10 minutes instead of 5
-Environment="OLLAMA_URL=http://localhost:11434"
+Environment="IDLE_TIMEOUT=600"
+Environment="MAX_MODEL_LEN=65536"
+Environment="REPORTED_CONTEXT_WINDOW=65536"
 EOF
 
-# Reload and restart
+# Reload and restart service
 sudo systemctl daemon-reload
 sudo systemctl restart vllama
 ```
 
-## Service management commands
+## Context Length Configuration
 
+vllama provides accurate context length reporting to clients like Roo Code through multiple endpoints and configurable context windows.
+
+### Environment Variables
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `MAX_MODEL_LEN` | Maximum model length for vLLM (0 = auto-detect) | `65536` |
+| `REPORTED_CONTEXT_WINDOW` | Context window reported to clients (overrides actual) | `65536` |
+| `IDLE_TIMEOUT` | Seconds before unloading vLLM from VRAM | `300` |
+| `MAX_TOKENS_DEFAULT` | Default max tokens for completions | `1024` |
+
+### Context Window Determination
+
+The reported context window is determined in the following priority order:
+
+1. **REPORTED_CONTEXT_WINDOW environment variable** (if set) - allows overriding reported context independently of actual vLLM context
+2. **Actual vLLM engine context** (when engine is loaded) - real context from loaded model
+3. **MAX_MODEL_LEN environment variable** (if set) - configured maximum model length
+4. **Default fallback** (65536) - safe default for most models
+
+### Context Information Endpoints
+
+```bash
+# Get model list with accurate context windows
+curl http://localhost:11435/v1/models
+
+# Get LiteLLM-compatible model info (recommended for Roo Code)
+curl http://localhost:11435/v1/model/info
+
+# Health check with context details
+curl http://localhost:11435/health
 ```
-# Start/stop/restart
-sudo systemctl start vllama
-sudo systemctl stop vllama
-sudo systemctl restart vllama
 
-# Check status and logs
-sudo systemctl status vllama
-journalctl -u vllama -f  # Follow logs
+### Example Responses
 
-# Disable auto-start
-sudo systemctl disable vllama
+**Standard OpenAI Models Endpoint:**
+```json
+{
+  "object": "list",
+  "data": [
+    {
+      "id": "huihui_ai/devstral-abliterated:latest",
+      "object": "model",
+      "created": 1699564800,
+      "owned_by": "vllama",
+      "context_window": 65536,
+      "max_position_embeddings": 65536,
+      "size": "13.5GB"
+    }
+  ]
+}
 ```
 
-## Usage with Cline (or Roo Code)
-
-vllama provides a fully OpenAI-compatible API, making it a seamless drop-in replacement for tools like Roo Code and Cline. Both tools can connect to vllama's endpoint (http://localhost:11435) instead of Ollama (http://localhost:11434) to get faster inference while maintaining the same model management workflow. You can install new models using ollama but use them via vllama API.
-
-Endpoint: http://localhost:11435 (or http://your-ip-or-hostname:11435 for network access from other computers in the network)
-
-1. Open Roo Code settings and set the API base URL to `http://localhost:11435`
-2. Model selection: huihui_ai/devstral-abliterated should appear as an option (same as Ollama), assuming that you have pulled it using ollama.
-3. Start coding: Roo Code will use vLLM for 3-4x faster responses
-
-# Available settings
-
-Default settings can be overriden by setting environment variables, which are these:
-
-* `MAX_TOKENS_DEFAULT` (default 1024): raise/lower the completion budget for clients that don’t pass `max_tokens`.
-* `FORCE_TOOL_FIRST_WHEN_TOOLS` (default `1`): set to `0` if you want to allow prose-first even when tools are provided and tool_choice is omitted.
-
-## Implementation
-
-vllama is implemented as a lightweight Python server using FastAPI for the API layer and uvicorn for ASGI hosting. It proxies model listing requests to Ollama's endpoint (`/api/tags`) and converts them to OpenAI format, ensuring seamless compatibility for tools like Cline or Roo Code. For inference, it uses vLLM to handle GGUF models extracted from Ollama's blobs, with lazy loading: the vLLM engine spins up on the first chat completion request (loading to VRAM) and unloads after a configurable idle timeout (default 5 minutes) via a background thread timer. This achieves Ollama performance optimization by offloading heavy computation to vLLM's CUDA-optimized backend, supporting features like rope scaling, flash attention, and KV cache quantization. The tokenizer is borrowed from Ollama's embedded GGUF data, avoiding mismatch issues and ensuring consistent behavior. Emojis in logs (e.g., 🚀 for load, 🛑 for unload) make monitoring fancy and user-friendly.
-
-Important notes: vllama requires Ollama running in parallel for model management—treat it as a companion tool. If you're troubleshooting vLLM GGUF support or seeking ways to automate Ollama with vLLM, note that model paths are dynamically fetched via Ollama CLI, making it robust for updates. For Arch Linux users, pikaur handles dependencies smoothly.
-
-Key dependencies:
-- Python 3.12
-- vLLM (version 0.10.2)
-- FastAPI (version 0.117.1)
-- Uvicorn (version 0.36.0)
-- Ollama (version 0.5.4)
-
-## Important Notes for Developers
-
-- **Dependencies and Setup**: vllama relies on Ollama for model pulling and registry (e.g., `ollama pull`), and vLLM for inference. Install via `pip install -r requirements.txt`. Ensure Ollama is running on port 11434; vllama proxies to it for `/v1/models`. Test with `python vllama.py`—it binds to 0.0.0.0:11435 for network access.
-- **Tokenizer Handling**: Ollama's GGUF blobs include embedded tokenizers, which vLLM uses directly (`tokenizer=model_path`). This eliminates Roberta/Llama mismatches—perfect for Devstral models. If issues arise, verify GGUF path extraction in `get_ollama_model_path`.
-- **Idle Unloading**: The background thread checks activity every 60s and unloads vLLM if idle >5m, freeing VRAM. Customize `IDLE_TIMEOUT` for your setup. For debugging, add `--log-level debug` to uvicorn.
-- **Performance**: On RTX 3090 Ti, expect 20+ t/s for Q4_K_S GGUF models with 47k context—far faster than Ollama. Test with /health endpoint for load status.
-- **Limitations**: No direct Ollama CLI integration (use Ollama for pull/ls). For Debian/Ubuntu building, see contribution section — I don't have Ubuntu for testing, so PRs welcome. BTRFS-safe; no internet access needed post-install.
-- **Security**: CORS enabled for family multi-user; add auth if needed via FastAPI middleware.
-
-## Contribution Instructions
-
-Contributions are welcome to make vllama even better! Fork the repo on GitHub, make changes, and submit a PR. Focus on:
-- **Bug fixes**: Inference errors, path extraction, or tokenizer issues.
-- **Features**: Add support for more Ollama parameters (e.g., rope scaling via env vars).
-- **Testing**: Verify on NVIDIA GPUs; add unit tests for proxy and unloading.
-- **Packaging**: For Debian/Ubuntu building, create deb packages – I don't have Ubuntu for testing, so if you do, please contribute! Update PKGBUILD for AUR updates.
-
-## Architecture
-
-vllama's architecture is a hybrid proxy-inference system:
-- **API Layer** (FastAPI + Uvicorn): Handles OpenAI-compatible endpoints. `/v1/models` proxies to Ollama's `/api/tags` and reformats to OpenAI spec. `/v1/chat/completions` processes requests, builds prompts, and routes to vLLM.
-- **Model Management (Ollama Dependency)**: Borrows Ollama for pulling, listing, and path extraction (via CLI/subprocess). This keeps vllama lightweight—Ollama acts as "package manager" for GGUF models.
-- **Inference Engine (vLLM)**: Lazy-loaded AsyncLLMEngine for fast CUDA inference. Loads on first request, uses Ollama's GGUF path and tokenizer. Background thread monitors idle time and unloads (del engine) to free VRAM.
-- **Health/Monitoring**: /health endpoint shows status (loaded/unloaded, last activity) for debugging.
-- **Systemd Integration**: Runs as daemon with drop-in overrides for multi-user (network, CORS, resources). AUR package installs as dependency on Ollama/vLLM.
-
-This architecture ensures vllama is a seamless, faster Ollama alternative for GPU-accelerated setups, ideal for those seeking vLLM as OpenAI server with lazy loading or ways to speed up Ollama without full migration. 🌟
-
-### Roo / Cline Compatibility
-
-This server is designed to work with RooCode and Cline, which expect strict
-OpenAI-compatible semantics around tool calls.
-
-- **Tool enforcement**: When the client specifies `tool_choice="required"` (or
-  a specific function), the assistant must *only* output a `[TOOL_CALLS][…]`
-  block as its first action. Any pre-tool prose will cause Roo to inject an
-  error. The server enforces this by adjusting the system prompt and suppressing
-  pre-tool output in streaming mode.
-
-- **Sanitization**: Some models (especially DevStral clones) emit hidden
-  `[thinking]…[/thinking]` or `[plan]…` blocks. These are stripped before being
-  sent to clients. In streaming mode, whitespace at chunk boundaries is
-  preserved so text doesn’t become scrambled.
-
-- **Stop tokens**: Extra stops like `[/ASSISTANT]` are added to prevent the
-  model from leaking unwanted closing tags or meta.
-
-# Troubleshooting
-
+**LiteLLM Model Info Endpoint:**
+```json
+{
+  "data": [
+    {
+      "model_name": "huihui_ai/devstral-abliterated:latest",
+      "litellm_params": {
+        "model": "huihui_ai/devstral-abliterated:latest",
+        "max_tokens": 65536,
+        "supports_function_calling": true,
+        "supports_parallel_function_calling": false,
+        "supports_vision": false
+      },
+      "model_info": {
+        "max_tokens": 65536,
+        "max_input_tokens": 65536,
+        "max_output_tokens": 4096,
+        "input_cost_per_token": 0.0,
+        "output_cost_per_token": 0.0,
+        "litellm_provider": "vllm",
+        "mode": "chat"
+      }
+    }
+  ]
+}
 ```
-# Check if venv312 is working
-ls -la /opt/vllama/venv312/bin/python  # Should exist
 
-# Verify vLLM loaded correctly
-curl http://localhost:11435/health  # Should show "loaded" after first request
+## Roo Code Integration
 
-# Check logs for errors
-journalctl -u vllama --since "1 hour ago"
+To use vllama with Roo Code and get correct context length information:
 
-# Test Ollama dependency
-curl http://localhost:11434/api/tags  # Should list models
+### Option 1: OpenAI Provider (Recommended)
+
+Configure Roo Code to use vllama as an OpenAI-compatible provider with custom model info:
+
+**In Roo Code Settings:**
+```json
+{
+  "apiProvider": "openai",
+  "openAiBaseUrl": "http://localhost:11435/v1",
+  "openAiApiKey": "not-required",
+  "openAiModelId": "huihui_ai/devstral-abliterated:latest",
+  "openAiCustomModelInfo": {
+    "contextWindow": 65536,
+    "maxTokens": 4096,
+    "supportsImages": false,
+    "supportsPromptCache": false
+  }
+}
 ```
+
+**Key Points:**
+- **`openAiCustomModelInfo.contextWindow`**: Set this to match your `REPORTED_CONTEXT_WINDOW` environment variable
+- **Model ID**: Use the exact model name from `ollama list`
+- **Base URL**: Point to your vllama server with `/v1` suffix
+
+### Option 2: LiteLLM Provider (Dynamic)
+
+Configure as LiteLLM provider for automatic context detection:
+
+```json
+{
+  "apiProvider": "litellm",
+  "litellmBaseUrl": "http://localhost:11435",
+  "litellmApiKey": "not-required",
+  "litellmModelId": "huihui_ai/devstral-abliterated:latest"
+}
+```
+
+### Environment Variable Synchronization
+
+To ensure Roo Code shows the correct context window, synchronize these values:
+
+```bash
+# Set vllama context window
+export REPORTED_CONTEXT_WINDOW=65536
+
+# Configure Roo Code openAiCustomModelInfo.contextWindow to match: 65536
+```
+
+**Example configurations for different context windows:**
+
+```bash
+# For 128k context
+export REPORTED_CONTEXT_WINDOW=131072
+# Set Roo Code openAiCustomModelInfo.contextWindow: 131072
+
+# For 32k context
+export REPORTED_CONTEXT_WINDOW=32768
+# Set Roo Code openAiCustomModelInfo.contextWindow: 32768
+```
+
+### Why OpenAI Provider Needs Manual Configuration
+
+Unlike LiteLLM providers, OpenAI providers in Roo Code use **user-configured model information** rather than fetching it from the API. This means:
+
+- **OpenAI Provider**: Uses `openAiCustomModelInfo.contextWindow` from your settings
+- **LiteLLM Provider**: Fetches context window dynamically from `/v1/model/info`
+
+Both approaches work, but OpenAI provider gives you explicit control over the reported context window.

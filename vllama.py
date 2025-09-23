@@ -73,6 +73,9 @@ last_activity = time.time()
 IDLE_TIMEOUT = int(os.environ.get("IDLE_TIMEOUT", 300))
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
 MAX_TOKENS_DEFAULT = int(os.environ.get("MAX_TOKENS_DEFAULT", 1024))  # default completion budget
+DEFAULT_CONTEXT_WINDOW = int(os.environ.get("DEFAULT_CONTEXT_WINDOW", 65536))  # fallback context window (64k default)
+REPORTED_CONTEXT_WINDOW = int(os.environ.get("REPORTED_CONTEXT_WINDOW", 65536))  # context window reported to clients (64k default)
+current_max_model_len = None
 
 # ---------- Output sanitization to strip meta/thoughts ----------
 # We remove blocks even if they are UN-CLOSED, stopping at the next bracket tag, a blank line, or end.
@@ -202,29 +205,59 @@ def get_ollama_model_path(model_id: str) -> str:
 
 async def load_vLLM(model_id: str):
     """Load vLLM engine for model (lazy loading)"""
-    global engine, last_activity
+    global engine, last_activity, current_max_model_len
     async with engine_lock:
         if not engine:
             print(f"[{time.strftime('%H:%M:%S')}] Loading vLLM for model: {model_id}")
             model_path = get_ollama_model_path(model_id)
             from vllm.engine.arg_utils import AsyncEngineArgs
             from vllm.engine.async_llm_engine import AsyncLLMEngine
+            
+            # Use environment variable for max_model_len, default to 53840 for VRAM compatibility
+            max_model_len = int(os.environ.get("MAX_MODEL_LEN", 53840))
+            if max_model_len == 0:
+                max_model_len = None  # Let vLLM auto-detect
+            
             engine_args = AsyncEngineArgs(
                 model=model_path,
                 tokenizer=model_path,  # Use GGUF tokenizer
-                max_model_len=47856,
                 gpu_memory_utilization=0.95,
                 enforce_eager=True,
                 disable_log_stats=True,
+                max_model_len=max_model_len,
             )
             engine = AsyncLLMEngine.from_engine_args(engine_args)
-            print(f"[{time.strftime('%H:%M:%S')}] vLLM loaded successfully")
+            
+            # Get the actual max_model_len from the engine args or use the configured value
+            if hasattr(engine_args, 'max_model_len') and engine_args.max_model_len:
+                current_max_model_len = engine_args.max_model_len
+            else:
+                current_max_model_len = max_model_len or DEFAULT_CONTEXT_WINDOW
+            
+            print(f"[{time.strftime('%H:%M:%S')}] vLLM loaded successfully with max_model_len: {current_max_model_len}")
         last_activity = time.time()
         return engine
 
+def get_context_window_for_model(model_id: str) -> int:
+    """Get context window for a model, using actual vLLM engine if loaded, or fallback"""
+    global current_max_model_len
+    
+    # If engine is loaded and matches the requested model, use actual context
+    if engine and current_max_model_len:
+        return current_max_model_len
+    
+    # Otherwise, use environment variable or default
+    return DEFAULT_CONTEXT_WINDOW
+
+def get_reported_context_window_for_model(model_id: str) -> int:
+    """Get context window to report to clients (can be different from actual vLLM context)"""
+    # Use the reported context window (configurable via environment variable)
+    # This allows users to set a different value than the actual vLLM context window
+    return REPORTED_CONTEXT_WINDOW
+
 @app.get("/v1/models")
 async def list_models_endpoint():
-    """Proxy to Ollama's /api/tags endpoint"""
+    """Proxy to Ollama's /api/tags endpoint with proper context window reporting"""
     try:
         response = requests.get(f"{OLLAMA_URL}/api/tags", timeout=5)
         response.raise_for_status()
@@ -243,16 +276,22 @@ async def list_models_endpoint():
                 continue
             size_bytes = model.get("size", 0)
             size_gb = round(size_bytes / (1024**3), 1) if size_bytes else None
+            
+            # Get context window for this model (reported to clients)
+            context_window = get_reported_context_window_for_model(model_id)
+            
             model_info = {
                 "id": model_id,
                 "object": "model",
                 "created": int(time.time()),
                 "owned_by": "vllama",
+                "context_window": context_window,
+                "max_position_embeddings": context_window,
             }
             if size_gb:
                 model_info["size"] = f"{size_gb}GB"
             openai_models.append(model_info)
-            print(f"[DEBUG] Added model: {model_id} ({size_gb}GB if available)")
+            print(f"[DEBUG] Added model: {model_id} (context: {context_window}, size: {size_gb}GB)")
         response_data = {"object": "list", "data": openai_models}
         print(f"[DEBUG] Returning {len(openai_models)} models")
         return response_data
@@ -445,13 +484,44 @@ async def chat_completions(request: ChatCompletionRequest):
                         buffer = ""
 
                     if result.finished:
+                        # Calculate token usage for final chunk
+                        prompt_tokens = len(prompt.split()) // 4  # Rough estimate
+                        completion_tokens = len(previous_text.split()) // 4
+                        
+                        # Try to get more accurate token counts from vLLM
+                        try:
+                            # For AsyncLLMEngine, we need to access the tokenizer differently
+                            if hasattr(engine, 'get_tokenizer'):
+                                tokenizer = engine.get_tokenizer()
+                                if hasattr(tokenizer, 'encode'):
+                                    prompt_tokens = len(tokenizer.encode(prompt))
+                                    completion_tokens = len(tokenizer.encode(previous_text))
+                        except Exception as e:
+                            print(f"[DEBUG] Could not use vLLM tokenizer for streaming token counting: {e}")
+                        
+                        total_tokens = prompt_tokens + completion_tokens
+                        actual_context_window = current_max_model_len or DEFAULT_CONTEXT_WINDOW
+                        reported_context_window = get_reported_context_window_for_model(request.model)
+                        context_usage_percent = (total_tokens / reported_context_window) * 100 if reported_context_window > 0 else 0
+                        
+                        print(f"[DEBUG] Streaming context usage: {total_tokens}/{reported_context_window} tokens ({context_usage_percent:.1f}%) [actual: {actual_context_window}]")
+                        
                         finish_reason = result.outputs[0].finish_reason if result.outputs[0].finish_reason else "stop"
+                        
+                        # Final chunk with usage information
                         yield "data: " + json.dumps({
                             'id': f'chatcmpl-{created_time}-{request_id_[:8]}',
                             'object': 'chat.completion.chunk',
                             'created': created_time,
                             'model': request.model,
-                            'choices': [{'index': 0, 'delta': {}, 'finish_reason': finish_reason}]
+                            'choices': [{'index': 0, 'delta': {}, 'finish_reason': finish_reason}],
+                            'usage': {
+                                'prompt_tokens': prompt_tokens,
+                                'completion_tokens': completion_tokens,
+                                'total_tokens': total_tokens,
+                                'context_window': reported_context_window,
+                                'context_usage_percent': round(context_usage_percent, 1)
+                            }
                         }) + "\n\n"
                         yield "data: [DONE]\n\n"  # End of stream
             return StreamingResponse(stream_results(), media_type="text/event-stream")
@@ -519,9 +589,30 @@ async def chat_completions(request: ChatCompletionRequest):
 
             print(f"[DEBUG] Generated {len(generated_text)} characters")
 
-            # Estimate token counts (rough)
+            # Get actual token counts from vLLM if available, otherwise estimate
             prompt_tokens = len(prompt.split()) // 4  # Rough estimate
             completion_tokens = len(generated_text.split()) // 4
+            
+            # Try to get more accurate token counts from vLLM
+            try:
+                # For AsyncLLMEngine, we need to access the tokenizer differently
+                if hasattr(engine, 'get_tokenizer'):
+                    tokenizer = engine.get_tokenizer()
+                    if hasattr(tokenizer, 'encode'):
+                        prompt_tokens = len(tokenizer.encode(prompt))
+                        completion_tokens = len(tokenizer.encode(generated_text))
+                        print(f"[DEBUG] Accurate token count - prompt: {prompt_tokens}, completion: {completion_tokens}")
+            except Exception as e:
+                print(f"[DEBUG] Could not use vLLM tokenizer for token counting: {e}")
+                # Fall back to rough estimate
+
+            total_tokens = prompt_tokens + completion_tokens
+            
+            # Log context usage for debugging
+            actual_context_window = current_max_model_len or DEFAULT_CONTEXT_WINDOW
+            reported_context_window = get_reported_context_window_for_model(request.model)
+            context_usage_percent = (total_tokens / reported_context_window) * 100 if reported_context_window > 0 else 0
+            print(f"[DEBUG] Context usage: {total_tokens}/{reported_context_window} tokens ({context_usage_percent:.1f}%) [actual: {actual_context_window}]")
 
             return {
                 "id": f"chatcmpl-{int(time.time())}-{random_uuid()[:8]}",
@@ -536,7 +627,9 @@ async def chat_completions(request: ChatCompletionRequest):
                 "usage": {
                     "prompt_tokens": prompt_tokens,
                     "completion_tokens": completion_tokens,
-                    "total_tokens": prompt_tokens + completion_tokens
+                    "total_tokens": total_tokens,
+                    "context_window": reported_context_window,  # Add context window info for Roo Code
+                    "context_usage_percent": round(context_usage_percent, 1)  # Add usage percentage
                 },
                 "logprobs": None,
                 "system_fingerprint": None
@@ -662,15 +755,84 @@ def build_model_prompt(
 @app.get("/health")
 async def health_check():
     """Health check endpoint"""
-    global engine
+    global engine, current_max_model_len
     async with engine_lock:
         engine_status = "loaded" if engine else "unloaded"
     return {
         "status": "healthy",
         "engine": engine_status,
+        "context_window": get_reported_context_window_for_model("health_check"),
         "last_activity": last_activity,
         "timestamp": time.strftime('%Y-%m-%d %H:%M:%S')
     }
+
+@app.get("/v1/context")
+async def get_context_info():
+    """Get current context window and usage information"""
+    global engine, current_max_model_len
+    async with engine_lock:
+        reported_context = get_reported_context_window_for_model("context_check")
+        if engine and current_max_model_len:
+            return {
+                "context_window": reported_context,
+                "actual_context_window": current_max_model_len,
+                "engine_loaded": True,
+                "model": "loaded_model"
+            }
+        else:
+            return {
+                "context_window": reported_context,
+                "actual_context_window": DEFAULT_CONTEXT_WINDOW,
+                "engine_loaded": False,
+                "model": None
+            }
+
+@app.get("/v1/model/info")
+async def litellm_model_info():
+    """LiteLLM-compatible model info endpoint for dynamic context window reporting"""
+    try:
+        response = requests.get(f"{OLLAMA_URL}/api/tags", timeout=5)
+        response.raise_for_status()
+        ollama_data = response.json()
+        
+        if "models" in ollama_data:
+            ollama_models = ollama_data["models"]
+        else:
+            ollama_models = ollama_data.get("models", [])
+        
+        model_data = []
+        for model in ollama_models:
+            model_id = model.get("name", "")
+            if not model_id:
+                continue
+            
+            # Get the reported context window for this model
+            context_window = get_reported_context_window_for_model(model_id)
+            
+            model_data.append({
+                "model_name": model_id,
+                "model_info": {
+                    "max_tokens": MAX_TOKENS_DEFAULT,
+                    "max_input_tokens": context_window,  # This becomes contextWindow in Roo Code
+                    "supports_vision": False,
+                    "supports_prompt_caching": False,
+                    "supports_computer_use": False,
+                    "input_cost_per_token": 0,
+                    "output_cost_per_token": 0
+                },
+                "litellm_params": {
+                    "model": model_id
+                }
+            })
+        
+        return {"data": model_data}
+        
+    except requests.RequestException as e:
+        print(f"[ERROR] Ollama request failed in model/info: {e}")
+        raise HTTPException(status_code=503, detail=f"Ollama service unavailable: {e}")
+    except Exception as e:
+        print(f"[ERROR] Unexpected error in model/info: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch model info: {e}")
 
 @app.get("/v1")
 async def openai_root():
