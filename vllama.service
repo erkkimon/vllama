@@ -6,8 +6,8 @@ Documentation=https://github.com/erkkimon/vllama
 
 [Service]
 Type=simple
-User=erkkimon
-Group=users
+User=vllama
+Group=vllama
 WorkingDirectory=/opt/vllama
 Environment=PATH=/opt/vllama/venv312/bin:/usr/bin
 # Use wrapper script that activates venv312

@@ -1,92 +1,95 @@
 # vllama: Faster Ollama Inference with vLLM Acceleration 🚀
 
+**vllama works on all platforms! See instructions for your OS below.**
+
 vllama is an open-source hybrid server that combines Ollama's seamless model management with vLLM's lightning-fast GPU inference, delivering a drop-in OpenAI-compatible API for optimized performance. If you're searching for Ollama performance optimizations, ways to speed up Ollama inference, or Ollama GPU acceleration techniques, vllama bridges the gap by using vLLM for high-speed generation while borrowing Ollama's repository for GGUF models. It runs on port 11435 as a faster alternative to Ollama (port 11434), with lazy model loading to VRAM on demand and automatic unloading when idle—ideal for efficient resource use in multi-user setups.
 
 At the moment, this has been developed for personal purposes, but it works with a variety of models and setups. The developer is using their favorite model, Devstral Small, with an RTX 3090 Ti on Arch Linux, and this combo is proven to work. More model support will be added as needed, but pull requests are welcome.
 
+## Quick Start
+
+> [!TIP]
+> ### Arch Linux Users (AUR)
+> The fastest way to get started on Arch Linux is by using the [AUR package](https://aur.archlinux.org/packages/vllama). This will install `vllama` as a systemd service.
+>
+> ```bash
+> # Install from AUR (e.g., with yay or paru)
+> yay -S vllama
+>
+> # Enable and start the service
+> sudo systemctl enable --now ollama.service
+> sudo systemctl enable --now vllama.service
+>
+> # Your server is running!
+> curl http://localhost:11435/v1/models
+> ```
+>
+> ### Other Linux Distributions
+> You can run `vllama` directly from the repository.
+>
+> ```bash
+> # 1. Clone the repository
+> git clone https://github.com/erkkimon/vllama.git
+> cd vllama
+>
+> # 2. Create a virtual environment and install dependencies
+> python3 -m venv venv
+> source venv/bin/activate
+> pip install -r requirements.txt
+>
+> # 3. Run the server (ensure Ollama is running)
+> python vllama.py
+> ```
+
+## System Service Setup (Ubuntu/Debian)
+
+For distributions like Ubuntu or Debian, you can set up `vllama` to run as a systemd service for automatic startup.
+
+1.  **Install Dependencies:**
+    ```bash
+    sudo apt-get update
+    sudo apt-get install -y python3 python3-venv git
+    ```
+
+2.  **Clone and Prepare the Repository:**
+    ```bash
+    # Clone to /opt
+    git clone https://github.com/erkkimon/vllama.git /tmp/vllama
+    sudo mv /tmp/vllama /opt/vllama
+    cd /opt/vllama
+    
+    # Create a user for the service
+    sudo useradd -r -s /usr/bin/nologin -d /opt/vllama vllama
+    
+    # Set up environment and permissions
+    sudo python3 -m venv venv312
+    sudo venv312/bin/pip install -r requirements.txt
+    sudo chown -R vllama:vllama /opt/vllama
+    ```
+
+3.  **Configure and Enable the Service:**
+    *   First, edit the service file to use the correct user and group.
+        ```bash
+        # The repository's service file is already configured for the 'vllama' user.
+        # If you use a different user, edit the file accordingly.
+        sudo cp /opt/vllama/vllama.service /etc/systemd/system/vllama.service
+        ```
+    *   Reload the systemd daemon and start the service.
+        ```bash
+        sudo systemctl daemon-reload
+        sudo systemctl enable --now vllama.service
+        
+        # Check the status
+        sudo systemctl status vllama.service
+        ```
+
+## Windows Users
+
+For instructions on running `vllama` on Windows, please see the **[Windows Setup Guide](./docs/windows.md)**.
+
 ## Vision
 
 The vision for vllama is to make high-performance AI inference accessible and efficient for everyone using Ollama models. By integrating vLLM's advanced GPU optimizations, it addresses common pain points like slow Ollama inference on large models while maintaining Ollama's simple pull-and-run workflow. Whether you're looking for OpenAI-compatible vLLM server solutions or methods to unload vLLM models when idle, vllama aims to be the go-to tool for users wanting faster Ollama with vLLM without sacrificing ease of use. It's designed for developers, families sharing hardware, or anyone optimizing Ollama on NVIDIA GPUs like RTX 3090 Ti, emphasizing open-source principles and automation ideas for deployment.
-
-## Quick Start
-
-### AUR Installation (as system service)
-
-The AUR package includes a bundled venv312 for dependency isolation.
-
-```bash
-# Install from AUR
-pikaur -S vllama
-
-# Start services
-sudo systemctl start ollama vllama
-
-# Test
-curl http://localhost:11435/v1/models
-```
-
-The AUR package includes a bundled venv312 environment and systemd service. After installation, enable the service for automatic startup.
-
-```bash
-# Install from AUR (includes venv312 and service files)
-pikaur -S vllama
-
-# Pull a test model with Ollama (dependency)
-ollama pull huihui_ai/devstral-abliterated
-
-# Enable and start vllama service
-sudo systemctl enable vllama
-sudo systemctl start vllama
-
-# Verify services are running
-sudo systemctl status ollama vllama
-
-# Test API endpoints
-curl http://localhost:11435/v1/models  # Lists Ollama models
-curl http://localhost:11435/health     # Shows vLLM status
-
-# Test network access (from another machine)
-curl http://your-ip-address:11435/v1/models
-```
-
-### Development (isolated)
-
-To set up vllama for development on Arch Linux, clone the repository and install dependencies. This assumes you have Ollama running for model management.
-
-#### Setting up development environment
-
-```bash
-# Clone repo
-git clone https://github.com/erkkimon/vllama.git
-cd vllama
-
-# Create Python 3.12 virtual environment
-python3.12 -m venv venv312
-source venv312/bin/activate
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Pull a test model with Ollama, works with 24 Gb of VRAM (Nvidia RTX 3090, RTX 4090, etc.)
-ollama pull huihui_ai/devstral-abliterated
-```
-
-#### Running development environment
-
-```bash
-# Activate Python 3.12 environment
-source venv312/bin/activate
-
-# Start Ollama (dependency for model listing)
-sudo systemctl start ollama
-
-# Run vllama
-python vllama.py
-
-# Test endpoints (in another terminal)
-curl http://localhost:11435/v1/models
-curl http://localhost:11435/health
-```
 
 ## Post-install Customizations
 

@@ -6,14 +6,18 @@ pkgdesc="vLLM + Ollama hybrid server - Fast inference with Ollama model manageme
 arch=('x86_64')
 url="https://github.com/erkkimon/vllama"
 license=('MIT')
-depends=('python3.12' 'ollama' 'python-pip' 'python-setuptools')
-makedepends=('python3.12-setuptools')
+depends=('python' 'ollama' 'python-pip' 'python-setuptools')
+makedepends=('python-setuptools')
+install=vllama.install
+
 source=("vllama.py"
         "vllama.service"
         "multiuser.conf"
         "requirements.txt"
-        "install_venv.sh")
+        "install_venv.sh"
+        "vllama.install")
 sha256sums=('SKIP'
+            'SKIP'
             'SKIP'
             'SKIP'
             'SKIP'
@@ -36,9 +40,8 @@ package() {
     install -Dm644 vllama.service "$pkgdir/usr/lib/systemd/system/vllama.service"
     install -Dm644 multiuser.conf "$pkgdir/etc/systemd/system/vllama.service.d/multiuser.conf"
     
-    # Install license
-    install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
-}
 
-# Post-install script to activate venv
-chmod +x "$pkgdir/usr/bin/vllama"
+    
+    # Make wrapper executable
+    chmod +x "$pkgdir/usr/bin/vllama"
+}

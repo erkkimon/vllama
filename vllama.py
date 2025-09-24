@@ -43,7 +43,7 @@ async def lifespan(app: FastAPI):
     print(f"Lazy loading: vLLM unloads after {IDLE_TIMEOUT}s idle")
     yield
 
-app = FastAPI(title="vllama", version="0.1.1", lifespan=lifespan)
+app = FastAPI(title="vllama", version="0.1.2", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -74,7 +74,9 @@ IDLE_TIMEOUT = int(os.environ.get("IDLE_TIMEOUT", 300))
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
 MAX_TOKENS_DEFAULT = int(os.environ.get("MAX_TOKENS_DEFAULT", 1024))  # default completion budget
 DEFAULT_CONTEXT_WINDOW = int(os.environ.get("DEFAULT_CONTEXT_WINDOW", 65536))  # fallback context window (64k default)
-REPORTED_CONTEXT_WINDOW = int(os.environ.get("RE REPORTED_CONTEXT_WINDOW", 65536)) if os.environ.get("REPORTED_CONTEXT_WINDOW") else 65536
+
+# FIXED the env var typo; previously looked up "RE REPORTED_CONTEXT_WINDOW"
+REPORTED_CONTEXT_WINDOW = int(os.environ.get("REPORTED_CONTEXT_WINDOW", 65536))
 DEVSTRAL_CONTEXT_WINDOW = int(os.environ.get("DEVSTRAL_CONTEXT_WINDOW", 65536))
 current_max_model_len = None
 
@@ -336,6 +338,110 @@ def _detect_xml_tool_mode(messages: List[Dict[str, Any]]) -> bool:
             return True
     return False
 
+# ---------------- XML tool validation helpers (new) ----------------
+
+# Minimal requirements per Roo's tool schema
+REQUIRED_XML_PARAMS: Dict[str, List[str]] = {
+    "write_to_file": ["path", "content", "line_count"],
+    "attempt_completion": ["result"],
+    # ask_followup_question requires <question> and at least one <suggest> inside <follow_up>
+    "ask_followup_question": ["question"],  # special-case follow_up/suggest separately
+}
+
+_XML_OPEN_CLOSE_RE = re.compile(r"<(?P<name>[a-zA-Z_][\w\-]*)\b[^>]*>(?P<body>[\s\S]*?)</\1>", re.DOTALL)
+
+def extract_first_xml_tool_call(text: str) -> Optional[Tuple[str, str, str]]:
+    """
+    Returns (tool_name, body, raw_xml) for the first top-level XML tag.
+    Very lightweight regex-based extractor; assumes no nested same-named tags.
+    """
+    if not text:
+        return None
+    m = _XML_OPEN_CLOSE_RE.search(text)
+    if not m:
+        return None
+    name = m.group("name")
+    body = m.group("body") or ""
+    raw = m.group(0)
+    return name, body, raw
+
+def find_tag_value(body: str, tag: str) -> Optional[str]:
+    m = re.search(rf"<{tag}\b[^>]*>([\s\S]*?)</{tag}>", body, re.DOTALL)
+    return m.group(1) if m else None
+
+def has_any_suggest(body: str) -> bool:
+    # Accept either wrapped in <follow_up>…<suggest>… or direct <suggest> tags
+    if re.search(r"<follow_up\b[^>]*>[\s\S]*?<suggest\b[^>]*>[\s\S]*?</suggest>[\s\S]*?</follow_up>", body, re.DOTALL):
+        return True
+    if re.search(r"<suggest\b[^>]*>[\s\S]*?</suggest>", body, re.DOTALL):
+        return True
+    return False
+
+def validate_xml_tool_call(raw_xml: str) -> Tuple[bool, Optional[str], List[str]]:
+    """
+    Validate the first XML tool call found in raw_xml.
+    Returns (is_valid, tool_name, missing_params)
+    """
+    ext = extract_first_xml_tool_call(raw_xml)
+    if not ext:
+        return False, None, ["<tool>"]
+    tool, body, _ = ext
+    tool_lc = tool.strip().lower()
+    missing: List[str] = []
+
+    if tool_lc in REQUIRED_XML_PARAMS:
+        reqs = REQUIRED_XML_PARAMS[tool_lc]
+        for r in reqs:
+            if find_tag_value(body, r) is None:
+                missing.append(r)
+        # special case: suggestions for ask_followup_question
+        if tool_lc == "ask_followup_question" and not has_any_suggest(body):
+            missing.append("suggest")
+    else:
+        # Unknown tool: let it pass (or treat as missing schema)
+        return True, tool, []
+
+    is_valid = len(missing) == 0
+    return is_valid, tool_lc, missing
+
+def build_fallback_ask_for_missing(tool: Optional[str], missing: List[str]) -> str:
+    """
+    Build a valid ask_followup_question XML asking for the minimal missing field(s).
+    """
+    if not tool:
+        ask = "I need a complete XML tool invocation with required parameters."
+    else:
+        ask = f"The {tool} tool call is missing required parameter(s): {', '.join(missing)}."
+
+    # Provide concrete suggestions that match Roo's schema
+    suggestions: List[str] = []
+    if tool == "write_to_file":
+        if "path" in missing:
+            suggestions.append("<suggest>README.md</suggest>")
+            suggestions.append("<suggest>docs/README.md</suggest>")
+        if "content" in missing:
+            suggestions.append("<suggest>Use a basic README template with title, usage, and license</suggest>")
+        if "line_count" in missing:
+            suggestions.append("<suggest>27</suggest>")
+    elif tool == "attempt_completion" and "result" in missing:
+        suggestions.append("<suggest>I've completed the requested changes.</suggest>")
+        suggestions.append("<suggest>The README.md file has been created and finalized.</suggest>")
+    else:
+        suggestions.append("<suggest>Proceed with the minimal valid example</suggest>")
+
+    sugg_block = "".join(suggestions) if suggestions else "<suggest>Proceed</suggest>"
+
+    return (
+        "<ask_followup_question>"
+        f"<question>{ask}</question>"
+        "<follow_up>"
+        f"{sugg_block}"
+        "</follow_up>"
+        "</ask_followup_question>"
+    )
+
+# ---------------- Chat API ----------------
+
 @app.post("/chat/completions")
 async def chat_completions_root(request: ChatCompletionRequest):
     return await chat_completions(request)
@@ -366,7 +472,6 @@ async def chat_completions(request: ChatCompletionRequest):
                         for line in tool_parameters_str.splitlines():
                             if not line.strip().startswith("- "):
                                 continue
-                            # "- path: (required) File path ..."
                             try:
                                 after_dash = line.strip()[2:]
                                 pname, rest = after_dash.split(":", 1)
@@ -416,6 +521,16 @@ async def chat_completions(request: ChatCompletionRequest):
         if tool_required and seeded_tool_prefix:
             print("[DEBUG] Prompt seeded with [ASSISTANT][TOOL_CALLS] prefix for tool-first enforcement.")
 
+        # Extra stop sequences for XML mode; helps stop right after closing tags
+        xml_stops = [
+            "</write_to_file>",
+            "</attempt_completion>",
+            "</ask_followup_question>",
+            "</insert_content>",
+            "</apply_diff>",
+            "</search_and_replace>",
+        ] if xml_tool_mode else []
+
         sampling_params = SamplingParams(
             temperature=request.temperature,
             top_p=request.top_p,
@@ -429,7 +544,7 @@ async def chat_completions(request: ChatCompletionRequest):
                 "Roo has a question",
                 "[USER][ERROR]",
                 "Roo is having trouble..."
-            ]
+            ] + xml_stops
         )
 
         results_generator = engine_instance.generate(prompt, sampling_params, request_id=random_uuid())
@@ -518,6 +633,40 @@ async def chat_completions(request: ChatCompletionRequest):
                     previous_text = new_text
                     buffer += delta
 
+                    # XML tool mode: buffer until a complete top-level tool tag appears, then validate
+                    if xml_tool_mode and not tool_calls_sent:
+                        ext = extract_first_xml_tool_call(buffer)
+                        if ext:
+                            tool_name, body, raw_xml = ext
+                            valid, tname, missing = validate_xml_tool_call(raw_xml)
+                            to_emit = raw_xml if valid else build_fallback_ask_for_missing(tname, missing)
+                            clean = to_emit  # do NOT sanitize XML tool payload
+                            if clean:
+                                yield sse_delta_content(clean)
+                            # Finish immediately after emitting a single tool invocation
+                            prompt_tokens, completion_tokens = _safe_token_usage_counts(engine_instance, prompt, previous_text)
+                            total_tokens = prompt_tokens + completion_tokens
+                            actual_context_window = current_max_model_len or DEFAULT_CONTEXT_WINDOW
+                            reported_context_window = get_reported_context_window_for_model(request.model)
+                            context_usage_percent = (total_tokens / reported_context_window) * 100 if reported_context_window > 0 else 0
+                            yield "data: " + json.dumps({
+                                'id': f'chatcmpl-{created_time}-{request_id_[:8]}',
+                                'object': 'chat.completion.chunk',
+                                'created': created_time,
+                                'model': request.model,
+                                'choices': [{'index': 0, 'delta': {}, 'finish_reason': 'stop'}],
+                                'usage': {
+                                    'prompt_tokens': prompt_tokens,
+                                    'completion_tokens': completion_tokens,
+                                    'total_tokens': total_tokens,
+                                    'context_window': reported_context_window,
+                                    'context_usage_percent': round(context_usage_percent, 1)
+                                }
+                            }) + "\n\n"
+                            yield "data: [DONE]\n\n"
+                            return
+
+                    # Non-XML tool streaming path
                     if not xml_tool_mode:
                         match_tagged = re.search(r"\[TOOL_CALLS\]\[(.*?)\]", buffer, re.DOTALL)
                         match_seeded = None
@@ -562,42 +711,33 @@ async def chat_completions(request: ChatCompletionRequest):
                             yield "data: [DONE]\n\n"
                             return
 
-                    # XML mode or normal prose: stream sanitized text
-                    clean = sanitize_visible_text(buffer, for_stream=True)
-                    if clean and not tool_calls_sent:
-                        yield sse_delta_content(clean)
-                        buffer = ""
+                    # Prose streaming (sanitized) only if not XML mode
+                    if not xml_tool_mode:
+                        clean = sanitize_visible_text(buffer, for_stream=True)
+                        if clean and not tool_calls_sent:
+                            yield sse_delta_content(clean)
+                            buffer = ""
 
                     if result.finished and not tool_calls_sent:
-                        # Token usage (try accurate, else fallback)
-                        prompt_tokens = len(prompt.split())
-                        completion_tokens = len(previous_text.split())
-                        try:
-                            get_tok = getattr(engine_instance, "get_tokenizer", None)
-                            if get_tok is not None:
-                                tok = get_tok()
-                                if asyncio.iscoroutine(tok):
-                                    tok = await tok  # <-- await the coroutine
-                                if hasattr(tok, "encode"):
-                                    prompt_tokens = len(tok.encode(prompt))
-                                    completion_tokens = len(tok.encode(previous_text))
-                        except Exception as e:
-                            print(f"[DEBUG] Could not use vLLM tokenizer for streaming token counting: {e}")
-
+                        # Finalize (no tool emitted)
+                        prompt_tokens, completion_tokens = _safe_token_usage_counts(engine_instance, prompt, previous_text)
                         total_tokens = prompt_tokens + completion_tokens
                         actual_context_window = current_max_model_len or DEFAULT_CONTEXT_WINDOW
                         reported_context_window = get_reported_context_window_for_model(request.model)
                         context_usage_percent = (total_tokens / reported_context_window) * 100 if reported_context_window > 0 else 0
                         print(f"[DEBUG] Streaming context usage: {total_tokens}/{reported_context_window} tokens ({context_usage_percent:.1f}%) [actual: {actual_context_window}]")
 
-                        finish_reason = result.outputs[0].finish_reason if result.outputs[0].finish_reason else "stop"
+                        # In XML tool mode and tools required, if nothing valid was produced, emit a fallback ask
+                        if xml_tool_mode and tool_required:
+                            fallback_xml = build_fallback_ask_for_missing(None, ["<tool>"])
+                            yield sse_delta_content(fallback_xml)
 
                         yield "data: " + json.dumps({
                             'id': f'chatcmpl-{created_time}-{request_id_[:8]}',
                             'object': 'chat.completion.chunk',
                             'created': created_time,
                             'model': request.model,
-                            'choices': [{'index': 0, 'delta': {}, 'finish_reason': finish_reason}],
+                            'choices': [{'index': 0, 'delta': {}, 'finish_reason': 'stop'}],
                             'usage': {
                                 'prompt_tokens': prompt_tokens,
                                 'completion_tokens': completion_tokens,
@@ -621,7 +761,21 @@ async def chat_completions(request: ChatCompletionRequest):
             tool_calls: List[Dict[str, Any]] = []
             content = generated_text
 
-            if not xml_tool_mode:
+            if xml_tool_mode:
+                # Extract first XML tool, validate, and either keep it or replace with a valid ask_followup_question
+                ext = extract_first_xml_tool_call(generated_text)
+                if ext:
+                    _, _, raw_xml = ext
+                    valid, tname, missing = validate_xml_tool_call(raw_xml)
+                    content = raw_xml if valid else build_fallback_ask_for_missing(tname, missing)
+                else:
+                    if tool_required:
+                        content = build_fallback_ask_for_missing(None, ["<tool>"])
+                    else:
+                        # If tools not required, keep sanitized prose (avoid empty)
+                        content = sanitize_visible_text(generated_text, for_stream=False) or " "
+            else:
+                # Non-XML tool_calls JSON hook
                 tool_calls_pattern = r"\[TOOL_CALLS\]\[(.*?)\]"
                 match = re.search(tool_calls_pattern, generated_text, re.DOTALL)
 
@@ -657,13 +811,14 @@ async def chat_completions(request: ChatCompletionRequest):
                     except json.JSONDecodeError:
                         print(f"[ERROR] Failed to parse tool calls JSON: {json_str}")
 
-            # In XML mode, tools are in content. Ensure we never return an empty message.
-            content = sanitize_visible_text(content, for_stream=False)
+                # sanitize prose if we're not returning tool_calls as content
+                content = sanitize_visible_text(content, for_stream=False)
+
+            # Ensure we never return an empty assistant message
             if not tool_calls and (content is None or content == ""):
-                # Avoid "no assistant message" client errors
                 content = " "
 
-            # Enforce tool requirement only for non-XML OpenAI-tools mode
+            # Enforce tool requirement:
             if tool_required and not xml_tool_mode and not tool_calls:
                 raise HTTPException(
                     status_code=400,
@@ -671,21 +826,7 @@ async def chat_completions(request: ChatCompletionRequest):
                 )
 
             # Token usage
-            prompt_tokens = len(prompt.split())
-            completion_tokens = len(generated_text.split())
-            try:
-                get_tok = getattr(engine_instance, "get_tokenizer", None)
-                if get_tok is not None:
-                    tok = get_tok()
-                    if asyncio.iscoroutine(tok):
-                        tok = await tok  # <-- await the coroutine
-                    if hasattr(tok, "encode"):
-                        prompt_tokens = len(tok.encode(prompt))
-                        completion_tokens = len(tok.encode(generated_text))
-                        print(f"[DEBUG] Accurate token count - prompt: {prompt_tokens}, completion: {completion_tokens}")
-            except Exception as e:
-                print(f"[DEBUG] Could not use vLLM tokenizer for token counting: {e}")
-
+            prompt_tokens, completion_tokens = _safe_token_usage_counts(engine_instance, prompt, generated_text)
             total_tokens = prompt_tokens + completion_tokens
             actual_context_window = current_max_model_len or DEFAULT_CONTEXT_WINDOW
             reported_context_window = get_reported_context_window_for_model(request.model)
@@ -726,6 +867,32 @@ async def chat_completions(request: ChatCompletionRequest):
         print(f"[DEBUG] Full traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"Inference failed: {str(e)}")
 
+def _safe_token_usage_counts(engine_instance, prompt: str, completion_text: str) -> Tuple[int, int]:
+    """
+    Helper to compute token counts, falling back to whitespace counts if tokenizer access fails.
+    """
+    prompt_tokens = len(prompt.split())
+    completion_tokens = len(completion_text.split())
+    try:
+        get_tok = getattr(engine_instance, "get_tokenizer", None)
+        if get_tok is not None:
+            tok = get_tok()
+            if asyncio.iscoroutine(tok):
+                tok = await_or_none(tok)
+            if tok and hasattr(tok, "encode"):
+                prompt_tokens = len(tok.encode(prompt))
+                completion_tokens = len(tok.encode(completion_text))
+                print(f"[DEBUG] Accurate token count - prompt: {prompt_tokens}, completion: {completion_tokens}")
+    except Exception as e:
+        print(f"[DEBUG] Could not use vLLM tokenizer for token counting: {e}")
+    return prompt_tokens, completion_tokens
+
+async def await_or_none(coro):
+    try:
+        return await coro
+    except Exception:
+        return None
+
 # ---------- Prompt builder (DevStral-aware, with force-tools mode & XML mode) ----------
 def build_model_prompt(
     messages: List[Dict[str, Any]],
@@ -752,6 +919,15 @@ def build_model_prompt(
 
     seeded_tool_prefix = False
 
+    # Mini schema hint to reduce malformed XML
+    xml_schema_hint = (
+        "When emitting XML tools, include required parameters:\n"
+        "- write_to_file: <path>, <content>, <line_count>\n"
+        "- attempt_completion: <result>\n"
+        "- ask_followup_question: <question> and at least one <suggest> (inside <follow_up>)\n"
+        "Emit exactly one tool invocation and nothing else."
+    )
+
     if devstral_like:
         sys_lines = ["You are a fast, helpful assistant."]
         if force_tools:
@@ -760,7 +936,8 @@ def build_model_prompt(
                     "TOOLS ARE REQUIRED for this reply.",
                     "Output EXACTLY ONE tool invocation using the XML tag schema required by the user (e.g., <write_to_file>...</write_to_file>).",
                     "Do not output any other text before or after the XML.",
-                    # Provide a tiny example to anchor the format (not content).
+                    xml_schema_hint,
+                    # Example to anchor the format (not content).
                     "Example format (do NOT reuse these values):",
                     "<write_to_file><path>README.md</path><content>...</content><line_count>42</line_count></write_to_file>",
                 ]
@@ -779,6 +956,7 @@ def build_model_prompt(
                 sys_lines += [
                     "If you use a tool, output ONLY the XML tool invocation with the required tags.",
                     "Otherwise output ONLY the final answer text.",
+                    xml_schema_hint,
                 ]
             else:
                 sys_lines += [
@@ -827,6 +1005,7 @@ def build_model_prompt(
             system_instruction = (
                 "You are a helpful assistant. The user expects literal XML tool invocations.\n"
                 "If tools are required, output EXACTLY ONE tool invocation using the XML tag schema and nothing else.\n"
+                f"{xml_schema_hint}\n"
                 "Example: <write_to_file><path>README.md</path><content>...</content><line_count>42</line_count></write_to_file>"
             )
         else:
@@ -951,6 +1130,7 @@ async def manual_unload():
             return {"status": "unloaded", "message": "vLLM engine unloaded from VRAM"}
         return {"status": "already unloaded", "message": "No engine to unload"}
 
+# ---------------- Main ----------------
 
 if __name__ == "__main__":
     import argparse
