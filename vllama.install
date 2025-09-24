@@ -1,0 +1,9 @@
+post_install() {
+    echo "Creating vllama user..."
+    useradd -r -s /usr/bin/nologin -d /opt/vllama vllama || true
+}
+
+pre_remove() {
+    echo "Removing vllama user..."
+    userdel -r vllama || true
+}

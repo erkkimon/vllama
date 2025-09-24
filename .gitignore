@@ -1,2 +1,4 @@
 venv312/
 _temp/
+pkg/
+*.pkg.tar.zst
