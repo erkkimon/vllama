@@ -1,6 +1,6 @@
 # Maintainer: Tom Himanen <tom.himanen@example.com>
 pkgname=vllama
-pkgver=0.1.0
+pkgver=0.1.1
 pkgrel=1
 pkgdesc="vLLM + Ollama hybrid server - Fast inference with Ollama model management"
 arch=('x86_64')

@@ -14,13 +14,6 @@ Environment=PATH=/opt/vllama/venv312/bin:/usr/bin
 ExecStart=/usr/bin/vllama
 ExecReload=/bin/kill -HUP $MAINPID
 Restart=always
-RestartSec=10
-
-# Security hardening
-NoNewPrivileges=true
-PrivateTmp=true
-ProtectSystem=strict
-ProtectHome=true
 ReadWritePaths=/tmp /var/tmp /opt/vllama
 
 # Resource limits

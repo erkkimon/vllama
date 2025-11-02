@@ -23,23 +23,24 @@ At the moment, this has been developed for personal purposes, but it works with 
 > # Your server is running!
 > curl http://localhost:11435/v1/models
 > ```
->
+
+## Logging
+
+`vllama` logs important events and errors to help with debugging and monitoring.
+
+*   **Service (Production):** When running as a systemd service, logs are located in `/opt/vllama/logs/`.
+*   **Development:** When running `vllama.py` directly from the repository, logs are located in a `logs/` directory within the project root.
+
+To monitor the logs in real-time, you can use the `tail -f` command on the appropriate log file. For example, when running as a service:
+
+```bash
+tail -f /opt/vllama/logs/vllama.log
+```
+
+If you encounter issues, checking these log files is the first step to diagnosing the problem.
+
 > ### Other Linux Distributions
 > You can run `vllama` directly from the repository.
->
-> ```bash
-> # 1. Clone the repository
-> git clone https://github.com/erkkimon/vllama.git
-> cd vllama
->
-> # 2. Create a virtual environment and install dependencies
-> python3 -m venv venv
-> source venv/bin/activate
-> pip install -r requirements.txt
->
-> # 3. Run the server (ensure Ollama is running)
-> python vllama.py
-> ```
 
 ## System Service Setup (Ubuntu/Debian)
 
