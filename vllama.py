@@ -15,6 +15,9 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import StreamingResponse, JSONResponse
 
+# Qwen Chat Template (from Hugging Face documentation)
+QWEN_CHAT_TEMPLATE_STRING = """{%% for message in messages %%}{%% if message['role'] == 'user' %%}{{ '<|im_start|>user\n' + message['content'] + '<|im_end|>\n' }}{%% elif message['role'] == 'system' %%}{{ '<|im_start|>system\n' + message['content'] + '<|im_end|>\n' }}{%% elif message['role'] == 'assistant' %%}{{ '<|im_start|>assistant\n' + message['content'] + '<|im_end|>\n' }}{%% endif %%}{%% if loop.last and add_generation_prompt %%}{{ '<|im_start|>assistant\n' }}{%% endif %%}"""
+
 # --- Logging Configuration ---
 PROD_DIR = "/opt/vllama"
 
@@ -116,17 +119,26 @@ def discover_ollama_gguf_models():
                 architecture = "mistral"
                 tokenizer_type = "mistral"
                 hf_tokenizer_path_or_name = "mistralai/Devstral-Small-2507"
-            elif architecture.lower() == "llama":
+            elif architecture.lower() == "llama" or architecture.lower() == "codellama":
                 tokenizer_type = "llama"
-                # Use a well-known Llama tokenizer from Hugging Face
-                hf_tokenizer_path_or_name = "hf-internal-testing/llama-tokenizer" 
+                # Use a more standard Llama tokenizer from Hugging Face
+                hf_tokenizer_path_or_name = "meta-llama/Llama-2-7b-hf" 
             elif architecture.lower() == "mistral":
                 tokenizer_type = "mistral"
                 # Use a well-known Mistral tokenizer from Hugging Face
                 hf_tokenizer_path_or_name = "mistralai/Mistral-7B-v0.1" 
-            elif architecture.lower() == "qwen": # Added for qwen3:14b
+            elif architecture.lower() == "gemma": # Handle Gemma architecture
+                tokenizer_type = "gemma"
+                hf_tokenizer_path_or_name = "google/gemma-2b" 
+            elif architecture.lower() == "phi": # Handle Phi architecture
+                tokenizer_type = "phi"
+                hf_tokenizer_path_or_name = "microsoft/phi-2" 
+            elif architecture.lower().startswith("qwen"): # Handle Qwen architectures (e.g., qwen3)
                 tokenizer_type = "qwen"
-                hf_tokenizer_path_or_name = "Qwen/Qwen-1_8B" # Example Qwen tokenizer
+                hf_tokenizer_path_or_name = "gpt2" # Based on Ollama source, some Qwen models use gpt2 tokenizer
+            elif architecture.lower() == "gptoss": # Handle gptoss architecture
+                tokenizer_type = "gptoss"
+                hf_tokenizer_path_or_name = "openai-community/gpt2" # Common GPT tokenizer
             else:
                 tokenizer_type = "auto" # Fallback to auto-detection by vLLM
                 hf_tokenizer_path_or_name = "auto" # Fallback to auto-detection by vLLM
@@ -139,6 +151,11 @@ def discover_ollama_gguf_models():
                 final_max_model_len = calculated_len
 
             if gguf_path and os.path.exists(gguf_path):
+                # Exclude known problematic models for vLLM GGUF support
+                if architecture.lower() == "gptoss":
+                    logging.warning("Excluding Ollama model %s (architecture: %s) due to known vLLM GGUF compatibility issues.", model_id, architecture)
+                    continue
+
                 ollama_discovered_models.append(OllamaModel(
                     id=model_id,
                     name=model_id,
@@ -214,6 +231,8 @@ def get_vllm_model_command(model_name: str):
             ollama_model_config = om
             break
 
+    vllm_dtype = "auto" # Default dtype
+
     if ollama_model_config:
         model_path_for_vllm = ollama_model_config.gguf_path
         served_model_name = ollama_model_config.name
@@ -227,15 +246,25 @@ def get_vllm_model_command(model_name: str):
         elif ollama_model_config.tokenizer_type == "mistral":
             tokenizer_mode = "mistral"
             tool_call_parser = "mistral"
+        elif ollama_model_config.tokenizer_type == "gemma": # Handle gemma tokenizer type
+            tokenizer_mode = "auto"
+            tool_call_parser = "openai" # Generic tool parser for gemma
+        elif ollama_model_config.tokenizer_type == "phi": # Handle phi tokenizer type
+            tokenizer_mode = "auto"
+            tool_call_parser = "openai" # Generic tool parser for phi
         elif ollama_model_config.tokenizer_type == "qwen":
             tokenizer_mode = "auto" # Let vLLM auto-detect for Qwen
             tool_call_parser = "qwen3_coder" # Qwen has a specific parser
+            vllm_dtype = "float16" # Explicitly set dtype for Qwen to avoid mixed dtypes error
+        elif ollama_model_config.tokenizer_type == "gptoss": # Handle gptoss tokenizer type
+            tokenizer_mode = "auto"
+            tool_call_parser = "openai" # Generic tool parser for gptoss
         else:
             tokenizer_mode = "auto" # Fallback for unknown types
             tool_call_parser = "openai" # Default fallback for tool-call-parser, more generic than mistral
 
-        logging.info("Serving Ollama model %s (vLLM model path: %s) with max_model_len %d, tokenizer %s, tokenizer_mode %s, tool_call_parser %s", 
-                     served_model_name, model_path_for_vllm, max_model_len, tokenizer_path, tokenizer_mode, tool_call_parser)
+        logging.info("Serving Ollama model %s (vLLM model path: %s) with max_model_len %d, tokenizer %s, tokenizer_mode %s, tool_call_parser %s, dtype %s", 
+                     served_model_name, model_path_for_vllm, max_model_len, tokenizer_path, tokenizer_mode, tool_call_parser, vllm_dtype)
     else:
         model_path = os.path.join(MODELS_DIR, f"{model_name}.gguf")
         if not os.path.exists(model_path):
@@ -258,8 +287,14 @@ def get_vllm_model_command(model_name: str):
         tokenizer_path = "mistralai/Devstral-Small-2507" # Default for non-Ollama GGUF
         tokenizer_mode = "mistral" # Default for non-Ollama GGUF
         tool_call_parser = "mistral" # Default for non-Ollama GGUF
-        logging.info("Serving local GGUF model %s (vLLM model path: %s) with max_model_len %d, tokenizer %s, tokenizer_mode %s, tool_call_parser %s", 
-                     served_model_name, model_path_for_vllm, max_model_len, tokenizer_path, tokenizer_mode, tool_call_parser)
+        vllm_dtype = "auto" # Default dtype for local GGUF
+        logging.info("Serving local GGUF model %s (vLLM model path: %s) with max_model_len %d, tokenizer %s, tokenizer_mode %s, tool_call_parser %s, dtype %s", 
+                     served_model_name, model_path_for_vllm, max_model_len, tokenizer_path, tokenizer_mode, tool_call_parser, vllm_dtype)
+
+    tokenizer_arg = f"--tokenizer {tokenizer_path}" if tokenizer_path != "auto" else ""
+    chat_template_arg = ""
+    if ollama_model_config and ollama_model_config.tokenizer_type == "qwen":
+        chat_template_arg = f"--chat-template '{QWEN_CHAT_TEMPLATE_STRING}'"
 
     return f"""
 python -m vllm.entrypoints.openai.api_server \
@@ -272,10 +307,12 @@ python -m vllm.entrypoints.openai.api_server \
     --served-model-name {served_model_name} \
     --enable-auto-tool-choice \
     --tool-call-parser {tool_call_parser} \
-    --tokenizer {tokenizer_path} \
+    {tokenizer_arg} \
+    {chat_template_arg} \
     --tokenizer-mode {tokenizer_mode} \
     --enforce-eager \
-    --max-model-len {max_model_len}
+    --max-model-len {max_model_len} \
+    --dtype {vllm_dtype}
 """
 # --- Global State ---
 vllm_process = None
