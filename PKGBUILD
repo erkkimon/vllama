@@ -1,47 +1,44 @@
-# Maintainer: Tom Himanen <tom.himanen@example.com>
+# Maintainer: Tom Himanen <tom.himanen@futuhima.ninja>
 pkgname=vllama
 pkgver=0.1.1
-pkgrel=1
+pkgrel=5
 pkgdesc="vLLM + Ollama hybrid server - Fast inference with Ollama model management"
 arch=('x86_64')
 url="https://github.com/erkkimon/vllama"
 license=('MIT')
 depends=('python' 'ollama' 'python-pip' 'python-setuptools')
-makedepends=('python-setuptools')
+makedepends=('python-setuptools' 'git')
 install=vllama.install
 
-source=("vllama.py"
+_commit=b31c3d1b128eeb4a8566d4e3204010889ebae580
+source=("${pkgname}-${_commit}.tar.gz::https://github.com/erkkimon/vllama/archive/${_commit}.tar.gz"
         "vllama.service"
         "multiuser.conf"
-        "requirements.txt"
-        "install_venv.sh"
         "vllama.install")
-sha256sums=('SKIP'
-            'SKIP'
-            'SKIP'
-            'SKIP'
-            'SKIP'
-            'SKIP')
 
-package() {
+build() {
+    cd "${srcdir}/${pkgname}-${_commit}"
     # Create venv312 in package
-    cd "$srcdir"
-    python3.12 -m venv "$pkgdir/opt/vllama/venv312"
+    python3.12 -m venv venv312
     
     # Install dependencies in venv
-    source "$pkgdir/opt/vllama/venv312/bin/activate"
-    pip install --no-deps -r requirements.txt
+    venv312/bin/pip install -r requirements.txt
+}
+
+package() {
+    cd "${srcdir}/${pkgname}-${_commit}"
     
     # Install main script
-    install -Dm755 vllama.py "$pkgdir/opt/vllama/vllama.py"
-    install -Dm755 install_venv.sh "$pkgdir/usr/bin/vllama"
-    
-    # Install systemd service
-    install -Dm644 vllama.service "$pkgdir/usr/lib/systemd/system/vllama.service"
-    install -Dm644 multiuser.conf "$pkgdir/etc/systemd/system/vllama.service.d/multiuser.conf"
-    
+    install -Dm755 vllama.py "${pkgdir}/opt/vllama/vllama.py"
 
-    
-    # Make wrapper executable
-    chmod +x "$pkgdir/usr/bin/vllama"
+    # Copy venv
+    cp -r venv312 "${pkgdir}/opt/vllama/"
+
+    # Install systemd service
+    install -Dm644 "${srcdir}/vllama.service" "${pkgdir}/usr/lib/systemd/system/vllama.service"
+    install -Dm644 "${srcdir}/multiuser.conf" "${pkgdir}/etc/systemd/system/vllama.service.d/multiuser.conf"
 }
+sha256sums=('3d44dc6d049708f7f4fc53960e32938f098b8e956e51815ac8378ae57e561882'
+            '32f30f302919e881bf3205320b9f8c5dc7720738223bb035a26f856cdc9cf882'
+            '316d741d3c15533002b0607d88ac9231c72258e5e856bd470805a8ba1b9ee29f'
+            '31f4c14151724ea11aa539510d91f793ded6a02ce871aa457e0d7acd854aa339')
