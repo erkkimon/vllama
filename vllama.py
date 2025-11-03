@@ -12,7 +12,7 @@ from fastapi import FastAPI, Request, Response
 from fastapi.responses import StreamingResponse
 
 # --- Logging Configuration ---
-LOG_DIR = "logs"
+LOG_DIR = "/opt/vllama/logs"
 LOG_FILE = f"{LOG_DIR}/vllama.log"
 
 # Create log directory if it doesn't exist
