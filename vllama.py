@@ -8,6 +8,9 @@ import threading
 import logging
 import glob
 import json
+import dataclasses
+import re
+from typing import List, Optional
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import StreamingResponse, JSONResponse
@@ -38,6 +41,123 @@ logging.basicConfig(
 )
 
 # --- Configuration ---
+@dataclasses.dataclass
+class OllamaModel:
+    id: str
+    name: str
+    gguf_path: str
+    architecture: str
+    max_model_len: int
+    quantization: str
+    tokenizer_type: str
+    hf_tokenizer_path_or_name: str # Hugging Face tokenizer ID or path to generated tokenizer.json
+
+ollama_discovered_models: List[OllamaModel] = []
+
+def discover_ollama_gguf_models():
+    logging.info("Discovering Ollama GGUF models...")
+    try:
+        # 1. Get list of Ollama models
+        list_result = subprocess.run(
+            ["ollama", "list"], capture_output=True, text=True, check=True, timeout=30
+        )
+        lines = list_result.stdout.strip().split('\n')
+        if len(lines) <= 1: # Header only or empty
+            logging.info("No Ollama models found.")
+            return
+
+        for line in lines[1:]: # Skip header
+            parts = line.split()
+            if not parts:
+                continue
+            model_id = parts[0] # e.g., huihui_ai/devstral-abliterated:latest
+
+            # 2. For each model, run ollama show --modelfile
+            show_result = subprocess.run(
+                ["ollama", "show", model_id, "--modelfile"],
+                capture_output=True, text=True, check=True, timeout=30
+            )
+            modelfile_content = show_result.stdout
+
+            # 3. Parse the output to extract GGUF path and metadata
+            gguf_path = None
+            architecture = "unknown"
+            max_model_len = 0
+            quantization = "unknown"
+            tokenizer_type = "unknown"
+            hf_tokenizer_path_or_name = "auto" # Default to auto-detect by vLLM
+
+            # Extract GGUF path from FROM line
+            from_match = re.search(r"FROM\s+(/var/lib/ollama/models/blobs/sha256-[a-f0-9]+)", modelfile_content)
+            if from_match:
+                gguf_path = from_match.group(1)
+
+            # Extract metadata from ollama show (without --modelfile)
+            # This is a bit redundant as we already ran ollama show, but it's easier to parse the structured output
+            # from the regular 'ollama show' command.
+            show_info_result = subprocess.run(
+                ["ollama", "show", model_id],
+                capture_output=True, text=True, check=True, timeout=30
+            )
+            info_lines = show_info_result.stdout.split('\n')
+            for info_line in info_lines:
+                if "architecture" in info_line:
+                    architecture = info_line.split("architecture", 1)[1].strip().split()[0]
+                elif "context length" in info_line:
+                    try:
+                        max_model_len = int(info_line.split("context length", 1)[1].strip().split()[0])
+                    except ValueError:
+                        logging.warning("Could not parse context length for model %s: %s", model_id, info_line)
+                elif "quantization" in info_line:
+                    quantization = info_line.split("quantization", 1)[1].strip().split()[0]
+            
+            # Infer tokenizer type and HF path based on architecture
+            if "devstral" in model_id.lower(): # Explicitly handle Devstral models
+                architecture = "mistral"
+                tokenizer_type = "mistral"
+                hf_tokenizer_path_or_name = "mistralai/Devstral-Small-2507"
+            elif architecture.lower() == "llama":
+                tokenizer_type = "llama"
+                # Use a well-known Llama tokenizer from Hugging Face
+                hf_tokenizer_path_or_name = "hf-internal-testing/llama-tokenizer" 
+            elif architecture.lower() == "mistral":
+                tokenizer_type = "mistral"
+                # Use a well-known Mistral tokenizer from Hugging Face
+                hf_tokenizer_path_or_name = "mistralai/Mistral-7B-v0.1" 
+            elif architecture.lower() == "qwen": # Added for qwen3:14b
+                tokenizer_type = "qwen"
+                hf_tokenizer_path_or_name = "Qwen/Qwen-1_8B" # Example Qwen tokenizer
+            else:
+                tokenizer_type = "auto" # Fallback to auto-detection by vLLM
+                hf_tokenizer_path_or_name = "auto" # Fallback to auto-detection by vLLM
+                logging.warning("Unknown architecture '%s' for model %s. Using 'auto' tokenizer.", architecture, model_id)
+
+            # Use the minimum of reported and calculated max_model_len
+            final_max_model_len = max_model_len
+            calculated_len = calculate_max_model_len(gguf_path)
+            if calculated_len > 0 and calculated_len < final_max_model_len:
+                final_max_model_len = calculated_len
+
+            if gguf_path and os.path.exists(gguf_path):
+                ollama_discovered_models.append(OllamaModel(
+                    id=model_id,
+                    name=model_id,
+                    gguf_path=gguf_path,
+                    architecture=architecture,
+                    max_model_len=final_max_model_len,
+                    quantization=quantization,
+                    tokenizer_type=tokenizer_type,
+                    hf_tokenizer_path_or_name=hf_tokenizer_path_or_name
+                ))
+                logging.info("Discovered Ollama model: %s at %s with max_model_len %d", model_id, gguf_path, final_max_model_len)
+            else:
+                logging.warning("Could not find GGUF path for Ollama model: %s", model_id)
+
+    except subprocess.CalledProcessError as e:
+        logging.error("Failed to discover Ollama models: %s", e.stderr)
+    except Exception as e:
+        logging.error("An unexpected error occurred during Ollama model discovery: %s", e)
+
 VLLM_HOST = "0.0.0.0"
 VLLM_PORT = 11436
 PROXY_HOST = "0.0.0.0"
@@ -52,8 +172,10 @@ def find_gguf_files():
     if os.path.exists(system_models_dir):
         system_models = glob.glob(f"{system_models_dir}/*.gguf")
     
+    ollama_gguf_paths = [model.gguf_path for model in ollama_discovered_models]
+
     # Combine and remove duplicates
-    all_models = list(set(local_models + system_models))
+    all_models = list(set(local_models + system_models + ollama_gguf_paths))
     return all_models
 
 def get_gpu_memory():
@@ -85,23 +207,59 @@ def calculate_max_model_len(model_path: str):
 
 def get_vllm_model_command(model_name: str):
     """Construct the vLLM command for a specific model."""
-    model_path = os.path.join(MODELS_DIR, f"{model_name}.gguf")
-    if not os.path.exists(model_path):
-        # Try to find model in all available locations
-        all_gguf_files = find_gguf_files()
-        for f in all_gguf_files:
-            if model_name in f:
-                model_path = f
-                break
     
-    if not os.path.exists(model_path):
-        logging.error("Model %s not found.", model_name)
-        return None
+    ollama_model_config = None
+    for om in ollama_discovered_models:
+        if om.name == model_name:
+            ollama_model_config = om
+            break
 
-    served_model_name = os.path.basename(model_path).replace(".gguf", "")
-    max_model_len = calculate_max_model_len(model_path)
-    
-    logging.info("Serving model %s as %s with max_model_len %d", model_path, served_model_name, max_model_len)
+    if ollama_model_config:
+        model_path_for_vllm = ollama_model_config.gguf_path
+        served_model_name = ollama_model_config.name
+        max_model_len = ollama_model_config.max_model_len
+        tokenizer_path = ollama_model_config.hf_tokenizer_path_or_name # Use HF tokenizer ID
+        
+        # Map our tokenizer_type to vLLM's supported tokenizer-mode
+        if ollama_model_config.tokenizer_type == "llama":
+            tokenizer_mode = "mistral" # vLLM often uses 'mistral' mode for Llama tokenizers
+            tool_call_parser = "llama3_json" # Use a Llama-specific tool-call-parser
+        elif ollama_model_config.tokenizer_type == "mistral":
+            tokenizer_mode = "mistral"
+            tool_call_parser = "mistral"
+        elif ollama_model_config.tokenizer_type == "qwen":
+            tokenizer_mode = "auto" # Let vLLM auto-detect for Qwen
+            tool_call_parser = "qwen3_coder" # Qwen has a specific parser
+        else:
+            tokenizer_mode = "auto" # Fallback for unknown types
+            tool_call_parser = "openai" # Default fallback for tool-call-parser, more generic than mistral
+
+        logging.info("Serving Ollama model %s (vLLM model path: %s) with max_model_len %d, tokenizer %s, tokenizer_mode %s, tool_call_parser %s", 
+                     served_model_name, model_path_for_vllm, max_model_len, tokenizer_path, tokenizer_mode, tool_call_parser)
+    else:
+        model_path = os.path.join(MODELS_DIR, f"{model_name}.gguf")
+        if not os.path.exists(model_path):
+            # Try to find model in all available locations
+            all_gguf_files = find_gguf_files()
+            for f in all_gguf_files:
+                # Check if the base name (without .gguf) matches
+                if os.path.basename(f).replace(".gguf", "") == model_name:
+                    model_path = f
+                    break
+        
+        if not os.path.exists(model_path):
+            logging.error("Model %s not found.", model_name)
+            return None
+
+        # For manually found GGUF, we still pass the GGUF path directly.
+        model_path_for_vllm = model_path
+        served_model_name = os.path.basename(model_path).replace(".gguf", "")
+        max_model_len = calculate_max_model_len(model_path)
+        tokenizer_path = "mistralai/Devstral-Small-2507" # Default for non-Ollama GGUF
+        tokenizer_mode = "mistral" # Default for non-Ollama GGUF
+        tool_call_parser = "mistral" # Default for non-Ollama GGUF
+        logging.info("Serving local GGUF model %s (vLLM model path: %s) with max_model_len %d, tokenizer %s, tokenizer_mode %s, tool_call_parser %s", 
+                     served_model_name, model_path_for_vllm, max_model_len, tokenizer_path, tokenizer_mode, tool_call_parser)
 
     return f"""
 python -m vllm.entrypoints.openai.api_server \
@@ -110,16 +268,15 @@ python -m vllm.entrypoints.openai.api_server \
     --gpu-memory-utilization 0.95 \
     --disable-log-stats \
     --enforce-eager \
-    --model {model_path} \
+    --model {model_path_for_vllm} \
     --served-model-name {served_model_name} \
     --enable-auto-tool-choice \
-    --tool-call-parser mistral \
-    --tokenizer mistralai/Devstral-Small-2507 \
-    --tokenizer-mode mistral \
+    --tool-call-parser {tool_call_parser} \
+    --tokenizer {tokenizer_path} \
+    --tokenizer-mode {tokenizer_mode} \
     --enforce-eager \
     --max-model-len {max_model_len}
 """
-
 # --- Global State ---
 vllm_process = None
 last_request_time = None
@@ -198,6 +355,7 @@ def idle_check():
 async def lifespan(app: FastAPI):
     idle_thread = threading.Thread(target=idle_check, daemon=True)
     idle_thread.start()
+    discover_ollama_gguf_models() # Call at startup
     yield
     kill_vllm_server()
 
@@ -207,22 +365,37 @@ app = FastAPI(lifespan=lifespan)
 @app.get("/v1/models")
 async def list_models():
     """Return a list of available GGUF models."""
-    gguf_files = find_gguf_files()
     models = []
+
+    # Add Ollama discovered models
+    for ollama_model in ollama_discovered_models:
+        max_len_str = f"{ollama_model.max_model_len // 1000}k" if ollama_model.max_model_len > 1000 else str(ollama_model.max_model_len)
+        models.append({
+            "id": f"{ollama_model.name} ({max_len_str})",
+            "object": "model",
+            "created": int(time.time()), # Use current time as creation time for discovered models
+            "owned_by": "vllama",
+            "context_window": ollama_model.max_model_len,
+        })
+
+    # Add manually found GGUF files (excluding those already discovered by Ollama)
+    gguf_files = find_gguf_files()
+    ollama_gguf_paths = {model.gguf_path for model in ollama_discovered_models}
+
     for f in gguf_files:
+        if f in ollama_gguf_paths:
+            continue # Skip if already added from Ollama discovery
+
         model_id = os.path.basename(f).replace(".gguf", "")
         max_len = calculate_max_model_len(f)
-        # Format max_len to 'k' notation
-        if max_len > 1000:
-            max_len_str = f"{max_len // 1000}k"
-        else:
-            max_len_str = str(max_len)
+        max_len_str = f"{max_len // 1000}k" if max_len > 1000 else str(max_len)
         
         models.append({
             "id": f"{model_id} ({max_len_str})",
             "object": "model",
             "created": int(os.path.getctime(f)),
             "owned_by": "vllama",
+            "context_window": max_len,
         })
     return JSONResponse(content={"object": "list", "data": models})
 
