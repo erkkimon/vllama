@@ -14,6 +14,19 @@ If you're searching for Ollama performance optimizations, ways to speed up Ollam
 
 At the moment, this has been developed for personal purposes, but it works with a variety of models and setups. The developer is using their favorite model, Devstral Small, with an RTX 3090 Ti on Arch Linux, and this combo is proven to work. More model support will be added as needed, but pull requests are welcome.
 
+## Table of Contents
+
+- [Quick Start](#quick-start)
+  - [Arch Linux Users (AUR)](#arch-linux-users-aur)
+- [Updates](#updates)
+- [Logging](#logging)
+- [System Service Setup (Ubuntu/Debian)](#system-service-setup-ubuntudebian)
+- [Windows Users](#windows-users)
+- [Vision](#vision)
+  - [Proven to Work Models](#proven-to-work-models)
+  - [GGUF Model Compatibility](#gguf-model-compatibility)
+- [Client Integration Notes](#client-integration-notes)
+
 ## Quick Start
 
 > [!TIP]
@@ -24,13 +37,26 @@ At the moment, this has been developed for personal purposes, but it works with 
 > # Install from AUR (e.g., with yay or paru)
 > yay -S vllama
 >
-> # Enable and start the service
+> # Enable and start the core services
 > sudo systemctl enable --now ollama.service
 > sudo systemctl enable --now vllama.service
 >
-> # Your server is running!
+> # Pull your desired models using Ollama
+> ollama pull huihui_ai/deepseek-r1-abliterated:14b
+> ollama pull huihui_ai/devstral-abliterated:latest
+>
+> # Restart vllama to discover the new models
+> # vllama discovers Ollama models on startup.
+> sudo systemctl restart vllama.service
+>
+> # Your server is now running with the new models!
 > curl http://localhost:11435/v1/models
 > ```
+
+## Updates
+
+*   **Nov 4, 2025:** Support for the `deepseek-r1` architecture has been added! 🧠 This allows models like `huihui_ai/deepseek-r1-abliterated:14b` to be used with `vllama`.
+*   **Nov 3, 2025:** `vllama` is alive! 🎉 Devstral models are confirmed to work flawlessly, bringing high-speed local inference to the community. 🚀
 
 ## Logging
 
@@ -99,6 +125,15 @@ For instructions on running `vllama` on Windows, please see the **[Windows Setup
 ## Vision
 
 The vision for vllama is to make high-performance AI inference accessible and efficient for everyone using Ollama models. By integrating vLLM's advanced GPU optimizations, it addresses common pain points like slow Ollama inference on large models while maintaining Ollama's simple pull-and-run workflow. This makes it an ideal solution for **local programming** and **local models powered software development**, enabling **agents powered by local LLM** to run efficiently. Whether you're looking for OpenAI-compatible vLLM server solutions or methods to unload vLLM models when idle, vllama aims to be the go-to tool for users wanting faster Ollama with vLLM without sacrificing ease of use. It's designed for developers, families sharing hardware, or anyone optimizing Ollama on NVIDIA GPUs like RTX 3090 Ti, emphasizing open-source principles and automation ideas for deployment.
+
+### Proven to Work Models
+
+While many GGUF models may work, the following have been tested and are confirmed to run correctly with `vllama`.
+
+| Model Family   | vLLM Architecture | Notes                               |
+|----------------|-------------------|-------------------------------------|
+| Devstral       | `mistral`         | Works exceptionally well out of the box. |
+| DeepSeek-R1    | `deepseek_r1`     |                                     |
 
 ### GGUF Model Compatibility
 

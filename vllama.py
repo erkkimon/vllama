@@ -119,6 +119,10 @@ def discover_ollama_gguf_models():
                 architecture = "mistral"
                 tokenizer_type = "mistral"
                 hf_tokenizer_path_or_name = "mistralai/Devstral-Small-2507"
+            elif "deepseek-r1" in model_id.lower(): # Explicitly handle deepseek-r1 models
+                architecture = "deepseek_r1"
+                tokenizer_type = "deepseek_r1"
+                hf_tokenizer_path_or_name = "deepseek-ai/DeepSeek-R1-Distill-Qwen-14B"
             elif architecture.lower() == "llama" or architecture.lower() == "codellama":
                 tokenizer_type = "llama"
                 # Use a more standard Llama tokenizer from Hugging Face
@@ -246,6 +250,9 @@ def get_vllm_model_command(model_name: str):
         elif ollama_model_config.tokenizer_type == "mistral":
             tokenizer_mode = "mistral"
             tool_call_parser = "mistral"
+        elif ollama_model_config.tokenizer_type == "deepseek_r1":
+            tokenizer_mode = "auto"
+            tool_call_parser = "deepseek_r1"
         elif ollama_model_config.tokenizer_type == "gemma": # Handle gemma tokenizer type
             tokenizer_mode = "auto"
             tool_call_parser = "openai" # Generic tool parser for gemma
@@ -291,29 +298,44 @@ def get_vllm_model_command(model_name: str):
         logging.info("Serving local GGUF model %s (vLLM model path: %s) with max_model_len %d, tokenizer %s, tokenizer_mode %s, tool_call_parser %s, dtype %s", 
                      served_model_name, model_path_for_vllm, max_model_len, tokenizer_path, tokenizer_mode, tool_call_parser, vllm_dtype)
 
+    command_parts = [
+        "python -m vllm.entrypoints.openai.api_server",
+        f"--host {VLLM_HOST}",
+        f"--port {VLLM_PORT}",
+        "--gpu-memory-utilization 0.95",
+        "--disable-log-stats",
+        "--enforce-eager",
+        f"--model {model_path_for_vllm}",
+        f"--served-model-name {served_model_name}",
+    ]
+
     tokenizer_arg = f"--tokenizer {tokenizer_path}" if tokenizer_path != "auto" else ""
+    if tokenizer_arg:
+        command_parts.append(tokenizer_arg)
+
     chat_template_arg = ""
     if ollama_model_config and ollama_model_config.tokenizer_type == "qwen":
         chat_template_arg = f"--chat-template '{QWEN_CHAT_TEMPLATE_STRING}'"
+    if chat_template_arg:
+        command_parts.append(chat_template_arg)
 
-    return f"""
-python -m vllm.entrypoints.openai.api_server \
-    --host {VLLM_HOST} \
-    --port {VLLM_PORT} \
-    --gpu-memory-utilization 0.95 \
-    --disable-log-stats \
-    --enforce-eager \
-    --model {model_path_for_vllm} \
-    --served-model-name {served_model_name} \
-    --enable-auto-tool-choice \
-    --tool-call-parser {tool_call_parser} \
-    {tokenizer_arg} \
-    {chat_template_arg} \
-    --tokenizer-mode {tokenizer_mode} \
-    --enforce-eager \
-    --max-model-len {max_model_len} \
-    --dtype {vllm_dtype}
-"""
+    # Conditional parser arguments based on the discovered incompatibility
+    if ollama_model_config and ollama_model_config.tokenizer_type == "deepseek_r1":
+        command_parts.append(f"--reasoning-parser {tool_call_parser}")
+    else:
+        command_parts.append("--enable-auto-tool-choice")
+        command_parts.append(f"--tool-call-parser {tool_call_parser}")
+
+    command_parts.extend([
+        f"--tokenizer-mode {tokenizer_mode}",
+        "--enforce-eager",
+        f"--max-model-len {max_model_len}",
+        f"--dtype {vllm_dtype}"
+    ])
+
+    return " \
+    ".join(command_parts)
+
 # --- Global State ---
 vllm_process = None
 last_request_time = None
