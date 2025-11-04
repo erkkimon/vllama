@@ -1,11 +1,11 @@
 aiohappyeyeballs==2.6.1
 aiohttp==3.12.15
 aiosignal==1.4.0
-anaconda-anon-usage @ file:///croot/anaconda-anon-usage_1749054771823/work
-annotated-types @ file:///work/perseverance-python-buildout/croot/annotated-types_1728386958747/work
+anaconda-anon-usage
+annotated-types
 anyio==4.10.0
 APScheduler==3.11.0
-archspec @ file:///croot/archspec_1709217642129/work
+archspec
 astor==0.8.1
 attrs==25.3.0
 azure-core==1.36.0
@@ -14,32 +14,32 @@ azure-storage-blob==12.27.0
 backoff==2.2.1
 blake3==1.0.6
 blessed==1.22.0
-boltons @ file:///croot/boltons_1751383775419/work
+boltons
 boto3==1.36.0
 botocore==1.36.26
-brotlicffi @ file:///croot/brotlicffi_1736182461069/work
+brotlicffi
 cachetools==6.2.0
 cbor2==5.7.0
-certifi @ file:///croot/certifi_1752653701669/work/certifi
-cffi @ file:///croot/cffi_1736182485317/work
-charset-normalizer @ file:///croot/charset-normalizer_1721748349566/work
+certifi
+cffi
+charset-normalizer
 click==8.3.0
 cloudpickle==3.1.1
 compressed-tensors==0.11.0
-conda @ file:///croot/conda_1749171252582/work/conda-src
-conda-anaconda-telemetry @ file:///croot/conda-anaconda-telemetry_1751061994888/work
-conda-anaconda-tos @ file:///croot/conda-anaconda-tos_1752801564376/work
-conda-content-trust @ file:///work/perseverance-python-buildout/croot/conda-content-trust_1728487058234/work
-conda-libmamba-solver @ file:///croot/conda-libmamba-solver_1745607008911/work/src
-conda-package-handling @ file:///croot/conda-package-handling_1731369017509/work
-conda_package_streaming @ file:///croot/conda-package-streaming_1751307506088/work
+conda
+conda-anaconda-telemetry
+conda-anaconda-tos
+conda-content-trust
+conda-libmamba-solver
+conda-package-handling
+conda_package_streaming
 croniter==6.0.0
-cryptography @ file:///croot/cryptography_1748977429425/work
+cryptography
 cupy-cuda12x==13.6.0
 depyf==0.19.0
 dill==0.4.0
 diskcache==5.6.3
-distro @ file:///work/perseverance-python-buildout/croot/distro_1728396110052/work
+distro
 dnspython==2.8.0
 editor==1.6.6
 einops==0.8.1
@@ -51,7 +51,7 @@ fastapi-sso==0.16.0
 fastrlock==0.8.3
 fastuuid==0.14.0
 filelock==3.19.1
-frozendict @ file:///work/perseverance-python-buildout/croot/frozendict_1728497542215/work
+frozendict
 frozenlist==1.7.0
 fsspec==2025.9.0
 gguf==0.17.1
@@ -63,7 +63,7 @@ httptools==0.6.4
 httpx==0.28.1
 httpx-sse==0.4.3
 huggingface-hub==0.35.0
-idna @ file:///work/perseverance-python-buildout/croot/idna_1728385935861/work
+idna
 importlib_metadata==8.7.0
 iniconfig==2.3.0
 inquirer==3.4.1
@@ -72,23 +72,23 @@ isodate==0.7.2
 Jinja2==3.1.6
 jiter==0.11.0
 jmespath==1.0.1
-jsonpatch @ file:///work/perseverance-python-buildout/croot/jsonpatch_1728399595941/work
+jsonpatch
 jsonpointer==2.1
 jsonschema==4.25.1
 jsonschema-specifications==2025.9.1
 lark==1.2.2
-libmambapy @ file:///croot/mamba-split_1734469461757/work/libmambapy
+libmambapy
 litellm==1.78.7
 litellm-enterprise==0.1.20
 litellm-proxy-extras==0.2.27
 llguidance==0.7.30
 llvmlite==0.44.0
 lm-format-enforcer==0.11.3
-markdown-it-py @ file:///work/perseverance-python-buildout/croot/markdown-it-py_1728387994477/work
+markdown-it-py
 MarkupSafe==3.0.2
 mcp==1.12.4
-mdurl @ file:///work/perseverance-python-buildout/croot/mdurl_1728387286143/work
-menuinst @ file:///croot/menuinst_1750861706497/work
+mdurl
+menuinst
 mistral_common==1.8.5
 mpmath==1.3.0
 msal==1.34.0
@@ -120,11 +120,11 @@ openai-harmony==0.0.4
 opencv-python-headless==4.12.0.88
 orjson==3.11.3
 outlines_core==0.2.11
-packaging @ file:///croot/packaging_1734472117206/work
+packaging
 partial-json-parser==0.2.1.1.post6
 pillow==11.3.0
-platformdirs @ file:///croot/platformdirs_1744273042065/work
-pluggy @ file:///croot/pluggy_1733169602837/work
+platformdirs
+pluggy
 polars==1.34.0
 polars-runtime-32==1.34.0
 prometheus-fastapi-instrumentator==7.1.0
@@ -134,17 +134,17 @@ protobuf==6.32.1
 psutil==7.1.0
 py-cpuinfo==9.0.0
 pybase64==1.4.2
-pycosat @ file:///croot/pycosat_1736868416091/work
+pycosat
 pycountry==24.6.1
-pycparser @ file:///tmp/build/80754af9/pycparser_1636541352034/work
-pydantic @ file:///croot/pydantic_1750768261732/work
+pycparser
+pydantic
 pydantic-extra-types==2.10.5
 pydantic-settings==2.11.0
-pydantic_core @ file:///croot/pydantic-core_1750754736071/work
-Pygments @ file:///croot/pygments_1744664109463/work
+pydantic_core
+Pygments
 PyJWT==2.10.1
 PyNaCl==1.6.0
-PySocks @ file:///work/perseverance-python-buildout/croot/pysocks_1728386193338/work
+PySocks
 pytest==8.4.2
 pytest-mock==3.15.1
 python-dateutil==2.9.0.post0
@@ -159,14 +159,14 @@ readchar==4.2.1
 redis==7.0.0
 referencing==0.36.2
 regex==2025.9.18
-requests @ file:///croot/requests_1750426329888/work
+requests
 rich==13.7.1
 rich-toolkit==0.15.1
 rignore==0.6.4
 rpds-py==0.27.1
 rq==2.6.0
-ruamel.yaml @ file:///croot/ruamel.yaml_1745960305322/work
-ruamel.yaml.clib @ file:///croot/ruamel.yaml.clib_1745937152469/work
+ruamel.yaml
+ruamel.yaml.clib
 runs==1.2.2
 s3transfer==0.11.3
 safetensors==0.6.2
@@ -188,15 +188,15 @@ tokenizers==0.22.1
 torch==2.8.0
 torchaudio==2.8.0
 torchvision==0.23.0
-tqdm @ file:///croot/tqdm_1738943501192/work
+tqdm
 transformers==4.56.2
 triton==3.4.0
-truststore @ file:///croot/truststore_1736550121485/work
+truststore
 typer==0.19.1
-typing-inspection @ file:///croot/typing-inspection_1746023470701/work
-typing_extensions @ file:///croot/typing_extensions_1734714854207/work
+typing-inspection
+typing_extensions
 tzlocal==5.3.1
-urllib3 @ file:///croot/urllib3_1750775463400/work
+urllib3
 uvicorn==0.29.0
 uvloop==0.21.0
 vllm==0.10.2
@@ -209,4 +209,4 @@ xgrammar==0.1.23
 xmod==1.8.1
 yarl==1.20.1
 zipp==3.23.0
-zstandard @ file:///croot/zstandard_1731356346222/work
+zstandard
