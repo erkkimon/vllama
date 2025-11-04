@@ -42,7 +42,7 @@ At the moment, this has been developed for personal purposes, but it works with 
 > sudo systemctl enable --now vllama.service
 >
 > # Pull your desired models using Ollama
-> ollama pull huihui_ai/deepseek-r1-abliterated:14b
+> ollama pull tom_himanen/deepseek-r1-roo-cline-tools:14b
 > ollama pull huihui_ai/devstral-abliterated:latest
 >
 > # Restart vllama to discover the new models
