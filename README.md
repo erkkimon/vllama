@@ -144,9 +144,6 @@ If you are using clients like Roo Code or Cline, it is recommended to adjust the
 # Get model list with accurate context windows
 curl http://localhost:11435/v1/models
 
-# Get LiteLLM-compatible model info (recommended for Roo Code)
-curl http://localhost:11435/v1/model/info
-
 # Health check with context details
 curl http://localhost:11435/health
 ```
@@ -166,33 +163,6 @@ curl http://localhost:11435/health
       "context_window": 65536,
       "max_position_embeddings": 65536,
       "size": "13.5GB"
-    }
-  ]
-}
-```
-
-**LiteLLM Model Info Endpoint:**
-```json
-{
-  "data": [
-    {
-      "model_name": "huihui_ai/devstral-abliterated:latest",
-      "litellm_params": {
-        "model": "huihui_ai/devstral-abliterated:latest",
-        "max_tokens": 65536,
-        "supports_function_calling": true,
-        "supports_parallel_function_calling": false,
-        "supports_vision": false
-      },
-      "model_info": {
-        "max_tokens": 65536,
-        "max_input_tokens": 65536,
-        "max_output_tokens": 4096,
-        "input_cost_per_token": 0.0,
-        "output_cost_per_token": 0.0,
-        "litellm_provider": "vllm",
-        "mode": "chat"
-      }
     }
   ]
 }
@@ -227,24 +197,10 @@ Configure Roo Code to use vllama as an OpenAI-compatible provider with custom mo
 - **Model ID**: Use the exact model name from `ollama list`
 - **Base URL**: Point to your vllama server with `/v1` suffix
 
-### Option 2: LiteLLM Provider (Dynamic)
-
-Configure as LiteLLM provider for automatic context detection:
-
-```json
-{
-  "apiProvider": "litellm",
-  "litellmBaseUrl": "http://localhost:11435",
-  "litellmApiKey": "not-required",
-  "litellmModelId": "huihui_ai/devstral-abliterated:latest"
-}
-```
-
 ### Why OpenAI Provider Needs Manual Configuration
 
 Unlike LiteLLM providers, OpenAI providers in Roo Code use **user-configured model information** rather than fetching it from the API. This means:
 
 - **OpenAI Provider**: Uses `openAiCustomModelInfo.contextWindow` from your settings
-- **LiteLLM Provider**: Fetches context window dynamically from `/v1/model/info`
 
 Both approaches work, but OpenAI provider gives you explicit control over the reported context window.
