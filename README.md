@@ -2,7 +2,15 @@
 
 **vllama works on all platforms! See instructions for your OS below.**
 
-vllama is an open-source hybrid server that combines Ollama's seamless model management with vLLM's lightning-fast GPU inference, delivering a drop-in OpenAI-compatible API for optimized performance. If you're searching for Ollama performance optimizations, ways to speed up Ollama inference, or Ollama GPU acceleration techniques, vllama bridges the gap by using vLLM for high-speed generation while borrowing Ollama's repository for GGUF models. It runs on port 11435 as a faster alternative to Ollama (port 11434), with lazy model loading to VRAM on demand and automatic unloading when idle—ideal for efficient resource use in multi-user setups.
+vllama is an open-source hybrid server that combines Ollama's seamless model management with vLLM's lightning-fast GPU inference, delivering a drop-in OpenAI-compatible API for optimized performance. It's designed for efficient **local LLM** operations and **on-device AI**, running on port 11435 as a faster alternative to Ollama (port 11434).
+
+**Key Features:**
+*   **Efficient VRAM Management:** Models are loaded on demand when a request is received and automatically unloaded after 5 minutes of inactivity, freeing up VRAM.
+*   **Automatic Context Length Optimization:** The context length is automatically calculated and optimized for your available VRAM, ensuring efficient performance without manual configuration.
+*   **Broad Ollama Model Support:** All Ollama models are served automatically. While vLLM's GGUF support is still experimental, Devstral models are currently proven to work exceptionally well.
+*   **Network-Wide Access:** vllama serves models for the entire network by default, making it easily accessible across your local network.
+
+If you're searching for Ollama performance optimizations, ways to speed up Ollama inference, or Ollama GPU acceleration techniques, vllama bridges the gap by using vLLM for high-speed generation while borrowing Ollama's repository for GGUF models.
 
 At the moment, this has been developed for personal purposes, but it works with a variety of models and setups. The developer is using their favorite model, Devstral Small, with an RTX 3090 Ti on Arch Linux, and this combo is proven to work. More model support will be added as needed, but pull requests are welcome.
 
@@ -90,9 +98,11 @@ For instructions on running `vllama` on Windows, please see the **[Windows Setup
 
 ## Vision
 
-The vision for vllama is to make high-performance AI inference accessible and efficient for everyone using Ollama models. By integrating vLLM's advanced GPU optimizations, it addresses common pain points like slow Ollama inference on large models while maintaining Ollama's simple pull-and-run workflow. Whether you're looking for OpenAI-compatible vLLM server solutions or methods to unload vLLM models when idle, vllama aims to be the go-to tool for users wanting faster Ollama with vLLM without sacrificing ease of use. It's designed for developers, families sharing hardware, or anyone optimizing Ollama on NVIDIA GPUs like RTX 3090 Ti, emphasizing open-source principles and automation ideas for deployment.
+The vision for vllama is to make high-performance AI inference accessible and efficient for everyone using Ollama models. By integrating vLLM's advanced GPU optimizations, it addresses common pain points like slow Ollama inference on large models while maintaining Ollama's simple pull-and-run workflow. This makes it an ideal solution for **local programming** and **local models powered software development**, enabling **agents powered by local LLM** to run efficiently. Whether you're looking for OpenAI-compatible vLLM server solutions or methods to unload vLLM models when idle, vllama aims to be the go-to tool for users wanting faster Ollama with vLLM without sacrificing ease of use. It's designed for developers, families sharing hardware, or anyone optimizing Ollama on NVIDIA GPUs like RTX 3090 Ti, emphasizing open-source principles and automation ideas for deployment.
 
-## Post-install Customizations
+## Configuration
+
+vllama can be configured using environment variables. You can set these in your systemd service file or directly in your shell environment before running `vllama.py`.
 
 ```bash
 # Override defaults without editing package files
@@ -101,8 +111,7 @@ sudo tee /etc/systemd/system/vllama.service.d/custom.conf > /dev/null <<EOF
 [Service]
 Environment="IDLE_TIMEOUT=600"
 Environment="MAX_MODEL_LEN=65536"
-Environment="REPORTED_CONTEXT_WINDOW=65536"
-Environment="DEVSTRAL_CONTEXT_WINDOW=65536"
+Environment="MAX_TOKENS_DEFAULT=1024"
 EOF
 
 # Reload and restart service
@@ -110,41 +119,24 @@ sudo systemctl daemon-reload
 sudo systemctl restart vllama
 ```
 
-## Context Length Configuration
-
-vllama provides accurate context length reporting to clients like Roo Code through multiple endpoints and configurable context windows.
-
 ### Environment Variables
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `MAX_MODEL_LEN` | Maximum model length for vLLM (0 = auto-detect) | `65536` |
-| `REPORTED_CONTEXT_WINDOW` | Context window reported to clients (overrides actual) | `65536` |
-| `DEVSTRAL_CONTEXT_WINDOW` | Context window specifically for Devstral models | `65536` |
-| `IDLE_TIMEOUT` | Seconds before unloading vLLM from VRAM | `300` |
-| `MAX_TOKENS_DEFAULT` | Default max tokens for completions | `1024` |
+| `MAX_MODEL_LEN` | Maximum model length for vLLM. Set to `0` for auto-detection based on available VRAM. | `65536` |
+| `IDLE_TIMEOUT` | Seconds before an idle vLLM model is unloaded from VRAM. | `300` |
+| `MAX_TOKENS_DEFAULT` | Default maximum tokens for completions if not specified by the client. | `1024` |
 
-### Context Window Determination
+### GGUF Model Compatibility
 
-The reported context window is determined using model-specific detection:
+vLLM's GGUF support is still experimental. While Devstral models are proven to work, other GGUF models might not function as expected. If you successfully run a GGUF model of your choice using vLLM with `vllama`, please consider:
 
-1. **Devstral Models** - Uses `DEVSTRAL_CONTEXT_WINDOW` (default: 65536)
-   - Detects: `devstral`, `huihui_ai/devstral`, `devstral-abliterated`
-   - Example: `huihui_ai/devstral-abliterated:latest` → 65536 tokens
-2. **Other Models** - Uses `REPORTED_CONTEXT_WINDOW` (default: 65536)
-3. **Actual vLLM engine context** (when engine is loaded) - real context from loaded model
-4. **Default fallback** (65536) - safe default for most models
+*   **Opening an issue ticket** with the command used to help us add broader support.
+*   **Submitting a pull request** with your changes—even better!
 
-### Model-Specific Configuration
+## Client Integration Notes
 
-For Devstral models, you can override the context window independently:
-
-```bash
-# Set Devstral models to 32k context while keeping others at 128k
-export DEVSTRAL_CONTEXT_WINDOW=32768
-export REPORTED_CONTEXT_WINDOW=131072
-python3 vllama.py
-```
+If you are using clients like Roo Code or Cline, it is recommended to adjust the maximum context window length in your client's settings to match your available VRAM. Additionally, condensing at 80% of the context window size is recommended for optimal performance and to prevent truncation.
 
 ### Context Information Endpoints
 
@@ -152,6 +144,8 @@ python3 vllama.py
 # Get model list with accurate context windows
 curl http://localhost:11435/v1/models
 
+# Get LiteLLM-compatible model info (recommended for Roo Code)
+curl http://localhost:11435/v1/model/info
 
 # Health check with context details
 curl http://localhost:11435/health
@@ -177,7 +171,32 @@ curl http://localhost:11435/health
 }
 ```
 
-
+**LiteLLM Model Info Endpoint:**
+```json
+{
+  "data": [
+    {
+      "model_name": "huihui_ai/devstral-abliterated:latest",
+      "litellm_params": {
+        "model": "huihui_ai/devstral-abliterated:latest",
+        "max_tokens": 65536,
+        "supports_function_calling": true,
+        "supports_parallel_function_calling": false,
+        "supports_vision": false
+      },
+      "model_info": {
+        "max_tokens": 65536,
+        "max_input_tokens": 65536,
+        "max_output_tokens": 4096,
+        "input_cost_per_token": 0.0,
+        "output_cost_per_token": 0.0,
+        "litellm_provider": "vllm",
+        "mode": "chat"
+      }
+    }
+  ]
+}
+```
 
 ## Roo Code Integration
 
@@ -204,31 +223,28 @@ Configure Roo Code to use vllama as an OpenAI-compatible provider with custom mo
 ```
 
 **Key Points:**
-- **`openAiCustomModelInfo.contextWindow`**: Set this to match your `REPORTED_CONTEXT_WINDOW` environment variable
+- **`openAiCustomModelInfo.contextWindow`**: Set this to match the context window reported by vllama for your model (e.g., via `curl http://localhost:11435/v1/models`).
 - **Model ID**: Use the exact model name from `ollama list`
 - **Base URL**: Point to your vllama server with `/v1` suffix
 
+### Option 2: LiteLLM Provider (Dynamic)
 
+Configure as LiteLLM provider for automatic context detection:
 
-### Environment Variable Synchronization
-
-To ensure Roo Code shows the correct context window, synchronize these values:
-
-```bash
-# Set vllama context window
-export REPORTED_CONTEXT_WINDOW=65536
-
-# Configure Roo Code openAiCustomModelInfo.contextWindow to match: 65536
+```json
+{
+  "apiProvider": "litellm",
+  "litellmBaseUrl": "http://localhost:11435",
+  "litellmApiKey": "not-required",
+  "litellmModelId": "huihui_ai/devstral-abliterated:latest"
+}
 ```
 
-**Example configurations for different context windows:**
+### Why OpenAI Provider Needs Manual Configuration
 
-```bash
-# For 128k context
-export REPORTED_CONTEXT_WINDOW=131072
-# Set Roo Code openAiCustomModelInfo.contextWindow: 131072
+Unlike LiteLLM providers, OpenAI providers in Roo Code use **user-configured model information** rather than fetching it from the API. This means:
 
-# For 32k context
-export REPORTED_CONTEXT_WINDOW=32768
-# Set Roo Code openAiCustomModelInfo.contextWindow: 32768
-```
+- **OpenAI Provider**: Uses `openAiCustomModelInfo.contextWindow` from your settings
+- **LiteLLM Provider**: Fetches context window dynamically from `/v1/model/info`
+
+Both approaches work, but OpenAI provider gives you explicit control over the reported context window.
