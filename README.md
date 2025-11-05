@@ -14,7 +14,9 @@ If you're looking for the **best local LLM for programming**, vllama is your ans
 *   **Advanced Model Techniques:** Supports models using **quantization**, **distilled models for local programming**, and techniques like **model pruning** to run efficiently on your hardware.
 
 <p align="center">
-  <video src="https://github.com/erkkimon/vllama/raw/main/assets/ollama-vs-vllama.mp4" controls="controls" style="max-width: 720px;"></video>
+<a href="https://github.com/erkkimon/vllama/raw/main/assets/ollama-vs-vllama.mp4">
+<img src="assets/ollama-vs-vllama-thumbnail.jpg" alt="Ollama vs vLLaMA Demo">
+</a>
 </p>
 
 ## Table of Contents
