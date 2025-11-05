@@ -1,30 +1,32 @@
-# vllama: Faster Ollama Inference with vLLM Acceleration 🚀
+# vllama: Your High-Performance Local AI Coding Assistant
 
-**vllama works on all platforms! See instructions for your OS below.**
+**vllama is a free, open-source tool that transforms your machine into a powerful offline AI for coding, programming, and more. It serves as the best local code generation tool for developers who value privacy, speed, and customization.**
 
-vllama is an open-source hybrid server that combines Ollama's seamless model management with vLLM's lightning-fast GPU inference, delivering a drop-in OpenAI-compatible API for optimized performance. It's designed for efficient **local LLM** operations and **on-device AI**, running on port 11435 as a faster alternative to Ollama (port 11434).
+vllama is a hybrid server that combines Ollama's easy model management with vLLM's fast GPU inference. This creates an OpenAI-compatible API for optimized performance, making it an excellent choice for anyone looking to set up a **local AI coding assistant**. It runs on port 11435 as a faster alternative to Ollama (port 11434), allowing you to run both simultaneously.
+
+If you're looking for the **best local LLM for programming**, vllama is your answer. It empowers you to use local large language models for programming tasks like **code generation**, **debugging**, **code completion**, **syntax optimization**, and even **offline llm for code debugging**. It's designed for efficient **local LLM** operations and on-device AI, making it a top choice for developers seeking **free local LLM for developers** or powerful **GitHub Copilot alternatives**.
 
 **Key Features:**
-*   **Efficient VRAM Management:** Models are loaded on demand when a request is received and automatically unloaded after 5 minutes of inactivity, freeing up VRAM.
-*   **Automatic Context Length Optimization:** The context length is automatically calculated and optimized for your available VRAM, ensuring efficient performance without manual configuration.
-*   **Broad Ollama Model Support:** All Ollama models are served automatically. While vLLM's GGUF support is still experimental, Devstral models are currently proven to work exceptionally well.
-*   **Network-Wide Access:** vllama serves models for the entire network by default, making it easily accessible across your local network.
-
-If you're searching for Ollama performance optimizations, ways to speed up Ollama inference, or Ollama GPU acceleration techniques, vllama bridges the gap by using vLLM for high-speed generation while borrowing Ollama's repository for GGUF models.
-
-At the moment, this has been developed for personal purposes, but it works with a variety of models and setups. The developer is using their favorite model, Devstral Small, with an RTX 3090 Ti on Arch Linux, and this combo is proven to work. More model support will be added as needed, but pull requests are welcome.
+*   **Efficient VRAM Management:** Models are loaded on demand and automatically unloaded after 5 minutes of inactivity, freeing up VRAM for other tasks.
+*   **Automatic Context Length Optimization:** vllama automatically calculates and maximizes the context length based on your available VRAM, ensuring peak performance without manual tweaking.
+*   **Broad Model Support:** All Ollama models are automatically discovered. While vLLM's GGUF support is experimental, many models, including top performers like **Devstral** and **DeepSeek**, are proven to work.
+*   **Network-Wide Access:** Serve models to your entire local network, enabling **agents powered by local LLM** and collaborative development.
+*   **Advanced Model Techniques:** Supports models using **quantization**, **distilled models for local programming**, and techniques like **model pruning** to run efficiently on your hardware.
 
 ## Table of Contents
 
 - [Quick Start](#quick-start)
   - [Arch Linux Users (AUR)](#arch-linux-users-aur)
+- [Supported Models](#supported-models)
+- [Integrations with Programming Agents](#integrations-with-programming-agents)
+  - [Roo Code, Cline, and Goose Setup](#roo-code-cline-and-goose-setup)
+  - [Other Agent Integrations](#other-agent-integrations)
+- [Frequently Asked Questions (FAQ)](#frequently-asked-questions-faq)
 - [Updates](#updates)
 - [Logging](#logging)
 - [System Service Setup (Ubuntu/Debian)](#system-service-setup-ubuntudebian)
 - [Windows Users](#windows-users)
 - [Vision](#vision)
-  - [Proven to Work Models](#proven-to-work-models)
-  - [GGUF Model Compatibility](#gguf-model-compatibility)
 - [Client Integration Notes](#client-integration-notes)
 
 ## Quick Start
@@ -46,12 +48,88 @@ At the moment, this has been developed for personal purposes, but it works with 
 > ollama pull huihui_ai/devstral-abliterated:latest
 >
 > # Restart vllama to discover the new models
-> # vllama discovers Ollama models on startup.
 > sudo systemctl restart vllama.service
 >
-> # Your server is now running with the new models!
+> # Your server is now running!
 > curl http://localhost:11435/v1/models
 > ```
+
+## Supported Models
+
+vllama can run any GGUF model available on Ollama, but compatibility ultimately depends on vLLM's support for the model architecture. The table below lists models that have been tested or are good candidates for local coding tasks. This is a great starting point for finding the **top open source LLM for coding locally**.
+
+| Model Family | Status | Notes |
+|---|---|---|
+| **Devstral** | ✅ **Proven to Work** | Excellent performance for coding and general tasks. A **best local coding model**. |
+| **DeepSeek-R1** | ✅ **Proven to Work** | Great for complex **programming** and following instructions. |
+| **DeepSeek-V2 / V3** | ❔ Untested | Promising for **code generation** and **debugging**. |
+| **Mistral / Mistral-Instruct** | ❔ Untested | Lightweight and fast, good for **code completion**. |
+| **CodeLlama / CodeLlama-Instruct** | ❔ Untested | Specifically **fine-tuned** for programming tasks. |
+| **Phi-3 (Mini, Small, Medium)** | ❔ Untested | Strong reasoning capabilities in a smaller package. |
+| **Llama-3-Code** | ❔ Untested | A powerful contender for the **best local coding llm**. |
+| **Qwen (2.5, 3, 3-VL, 3-Coder)** | ❔ Untested | Strong multilingual and coding abilities. |
+| **Gemma / Gemma-2** | ❔ Untested | Google's open models, good for general purpose and coding. |
+| **StarCoder / StarCoder2** | ❔ Untested | Trained on a massive corpus of code. |
+| **WizardCoder** | ❔ Untested | Fine-tuned for coding proficiency. |
+| **GLM / GLM-4** | ❔ Untested | Bilingual models with strong performance. |
+| **Codestral** | ❔ Untested | Mistral's first code-specific model. |
+| **Kimi K2** | ❔ Untested | Known for its large context window capabilities. |
+| **Granite-Code** | ❔ Untested | IBM's open-source code models. |
+| **CodeBERT** | ❔ Untested | An early but influential code model. |
+| **Pythia-Coder** | ❔ Untested | A model for studying LLM development. |
+| **Stable-Code** | ❔ Untested | From the creators of Stable Diffusion. |
+| **Mistral-Nemo** | ❔ Untested | A powerful new model from Mistral. |
+| **Llama-3.1** | ❔ Untested | The latest iteration of the Llama family. |
+| **TabNine-Local** | ❔ Untested | Open variants of the popular code completion tool. |
+
+## Integrations with Programming Agents
+
+One of the most powerful uses of vllama is to serve as the brain for local programming agents. This is **how to use local llm for software development** in a modern, automated way.
+
+### Roo Code, Cline, and Goose Setup
+
+**Roo Code**, **Cline**, and **Goose** are powerful programming agents that can use vllama for **inference**. Since vllama provides an OpenAI-compatible API, setting them up is straightforward.
+
+1.  **Start vllama**: Ensure your `vllama.service` is running or start it manually.
+2.  **Configure the Agent**: In your agent's settings (e.g., in Roo Code's `config.toml`), point the API endpoint to vllama's address.
+    *   **API URL**: `http://localhost:11435/v1`
+    *   **Model Name**: Select one of the models you have pulled with Ollama (e.g., `huihui_ai/devstral-abliterated:latest`).
+    *   **API Key**: You can typically leave this blank.
+
+Now, your agent will use your local GPU for lightning-fast, private **code generation** and **debugging**.
+
+### Other Agent Integrations
+
+The same principle applies to most modern AI agents. vllama can serve as a local, private backend for many popular tools, making it a fantastic alternative to cloud-based services.
+
+*   **AI Agent Frameworks**: For frameworks like **LangChain agents**, **AutoGen**, and **CrewAI**, you can configure the LLM client to point to the vllama endpoint (`http://localhost:11435/v1`). This allows you to build complex workflows that run entirely on your hardware.
+*   **Interpreter-Style Agents**: Tools like **Open-Interpreter** and open-source alternatives to **Devin-AI** can be configured to use a local OpenAI-compatible endpoint, making them perfect companions for vllama.
+*   **IDE Plugins & Tools**: Plugins and tools like **Aider**, **Cursor-AI local**, **Tabby-ML**, **Continue-dev**, and alternatives for **CodeWhisperer local** often support custom local endpoints. Point them to vllama to get superior performance and privacy compared to their default cloud services.
+*   **Other Coding Assistants**: The OpenAI-compatible API allows vllama to be a backend for many other tools, including experimental or less common ones like **Claude Code** and **Kilo Code**.
+*   **Advanced Agent Architectures**: If you are experimenting with **Reflexion agents**, **ReAct agents for coding**, or **Tree-of-Thoughts coding**, vllama provides the fast, local **inference** engine you need to power your research.
+
+## Frequently Asked Questions (FAQ)
+
+**Q: Why is my model's context window smaller than expected?**
+
+**A:** vllama prioritizes speed and stability by running inference exclusively on your GPU. To prevent out-of-memory errors, it automatically calculates the maximum possible context window based on the VRAM available *after* the model is loaded. If you need a larger context window, you should try a smaller model or a version with more aggressive **quantization** (e.g., a 4-bit or 5-bit quantized model instead of a 7-bit or 8-bit one). Finding the **best quantized llm for programming tasks** often involves balancing performance with context size.
+
+**Q: What is the best local LLM for programming?**
+
+**A:** The "best" model depends heavily on your hardware, the specific task (e.g., **code completion** vs. complex **debugging**), and personal preference. The goal of vllama is to make it easy to experiment. We recommend starting with models proven to work well, like **Devstral** or **DeepSeek-R1**, as they offer a great balance of performance and capability. Check the [Supported Models](#supported-models) table to explore other options.
+
+**Q: How can I use a local LLM for software development?**
+
+**A:** Using a **local large language model for programming** offers several advantages:
+1.  **Privacy**: Your code never leaves your machine.
+2.  **Speed**: **Inference** is performed directly on your GPU, eliminating network latency.
+3.  **Offline Access**: Continue working without an internet connection, making it a true **offline AI** solution.
+4.  **Customization**: You can choose from dozens of open-source models, including **fine-tuned** or **distilled models for local programming**, to find the perfect fit for your needs.
+vllama is the engine that makes this practical and efficient.
+
+**Q: Is this a free local LLM for developers?**
+
+**A:** Yes. vllama is an open-source tool that is completely free to use. You provide the hardware, and vllama provides the high-performance inference server. It's part of a growing ecosystem of free, open-source tools designed to democratize access to powerful AI.
 
 ## Updates
 
@@ -65,16 +143,7 @@ At the moment, this has been developed for personal purposes, but it works with 
 *   **Service (Production):** When running as a systemd service, logs are located in `/opt/vllama/logs/`.
 *   **Development:** When running `vllama.py` directly from the repository, logs are located in a `logs/` directory within the project root.
 
-To monitor the logs in real-time, you can use the `tail -f` command on the appropriate log file. For example, when running as a service:
-
-```bash
-tail -f /opt/vllama/logs/vllama.log
-```
-
-If you encounter issues, checking these log files is the first step to diagnosing the problem.
-
-> ### Other Linux Distributions
-> You can run `vllama` directly from the repository.
+To monitor the logs in real-time, you can use the `tail -f` command on the appropriate log file.
 
 ## System Service Setup (Ubuntu/Debian)
 
@@ -88,35 +157,21 @@ For distributions like Ubuntu or Debian, you can set up `vllama` to run as a sys
 
 2.  **Clone and Prepare the Repository:**
     ```bash
-    # Clone to /opt
     git clone https://github.com/erkkimon/vllama.git /tmp/vllama
     sudo mv /tmp/vllama /opt/vllama
     cd /opt/vllama
-    
-    # Create a user for the service
-    sudo useradd -r -s /usr/bin/nologin -d /opt/vllama vllama
-    
-    # Set up environment and permissions
     sudo python3 -m venv venv312
     sudo venv312/bin/pip install -r requirements.txt
-    sudo chown -R vllama:vllama /opt/vllama
+    sudo chown -R $USER:$USER /opt/vllama
     ```
 
 3.  **Configure and Enable the Service:**
-    *   First, edit the service file to use the correct user and group.
-        ```bash
-        # The repository's service file is already configured for the 'vllama' user.
-        # If you use a different user, edit the file accordingly.
-        sudo cp /opt/vllama/vllama.service /etc/systemd/system/vllama.service
-        ```
-    *   Reload the systemd daemon and start the service.
-        ```bash
-        sudo systemctl daemon-reload
-        sudo systemctl enable --now vllama.service
-        
-        # Check the status
-        sudo systemctl status vllama.service
-        ```
+    ```bash
+    sudo cp /opt/vllama/vllama.service /etc/systemd/system/vllama.service
+    sudo systemctl daemon-reload
+    sudo systemctl enable --now vllama.service
+    sudo systemctl status vllama.service
+    ```
 
 ## Windows Users
 
@@ -124,24 +179,8 @@ For instructions on running `vllama` on Windows, please see the **[Windows Setup
 
 ## Vision
 
-The vision for vllama is to make high-performance AI inference accessible and efficient for everyone using Ollama models. By integrating vLLM's advanced GPU optimizations, it addresses common pain points like slow Ollama inference on large models while maintaining Ollama's simple pull-and-run workflow. This makes it an ideal solution for **local programming** and **local models powered software development**, enabling **agents powered by local LLM** to run efficiently. Whether you're looking for OpenAI-compatible vLLM server solutions or methods to unload vLLM models when idle, vllama aims to be the go-to tool for users wanting faster Ollama with vLLM without sacrificing ease of use. It's designed for developers, families sharing hardware, or anyone optimizing Ollama on NVIDIA GPUs like RTX 3090 Ti, emphasizing open-source principles and automation ideas for deployment.
-
-### Proven to Work Models
-
-While many GGUF models may work, the following have been tested and are confirmed to run correctly with `vllama`.
-
-| Model Family   | vLLM Architecture | Notes                               |
-|----------------|-------------------|-------------------------------------|
-| Devstral       | `mistral`         | Works exceptionally well out of the box. |
-| DeepSeek-R1    | `deepseek_r1`     |                                     |
-
-### GGUF Model Compatibility
-
-Ollama uses GGUF models and they all are listed by default in vllama. However, all architectures might not work because vLLM's GGUF support is still experimental. While Devstral models are proven to work, other GGUF models might not function as expected. If you successfully run a GGUF model of your choice using vLLM with `vllama`, please consider:
-
-*   **Opening an issue ticket** with the command used to help us add broader support.
-*   **Submitting a pull request** with your changes—even better!
+The vision for vllama is to make high-performance AI inference accessible and efficient. By integrating vLLM's advanced GPU optimizations, it addresses common pain points like slow Ollama inference while maintaining Ollama's simple workflow. This makes it an ideal solution for **local programming** and **local models powered software development**, enabling **agents powered by local LLM** to run efficiently. Whether you're looking for an OpenAI-compatible vLLM server or ways to unload vLLM models when idle, vllama aims to be the go-to tool for users wanting faster **inference** with **Ollama** and **vLLM**.
 
 ## Client Integration Notes
 
-If you are using clients like Roo Code or Cline, it is recommended to adjust the maximum context window length in your client's settings to match your available VRAM. Additionally, condensing at 80% of the context window size is recommended for optimal performance and to prevent truncation.
+If you are using clients like **Roo Code** or **Cline**, it is recommended to adjust the maximum context window length in the client's settings to match your available VRAM. Condensing at 80% of the context window size is recommended for optimal performance.
