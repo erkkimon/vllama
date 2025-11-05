@@ -7,7 +7,7 @@ vllama is a hybrid server that combines Ollama's easy model management with vLLM
 If you're looking for the **best local LLM for programming**, vllama is your answer. It empowers you to use local large language models for programming tasks like **code generation**, **debugging**, **code completion**, **syntax optimization**, and even **offline llm for code debugging**. It's designed for efficient **local LLM** operations and on-device AI, making it a top choice for developers seeking **free local LLM for developers** or powerful **GitHub Copilot alternatives**.
 
 **Key Features:**
-*   **Efficient VRAM Management:** Models are loaded on demand and automatically unloaded after 5 minutes of inactivity, freeing up VRAM for other tasks.
+*   **On-Demand Model Loading & Unloading:** Models are loaded on-demand when a request is received and automatically unloaded after 5 minutes of inactivity, freeing up VRAM and making it a true on-demand solution.
 *   **Automatic Context Length Optimization:** vllama automatically calculates and maximizes the context length based on your available VRAM, ensuring peak performance without manual tweaking.
 *   **Broad Model Support:** All Ollama models are automatically discovered. While vLLM's GGUF support is experimental, many models, including top performers like **Devstral** and **DeepSeek**, are proven to work.
 *   **Network-Wide Access:** Serve models to your entire local network, enabling **agents powered by local LLM** and collaborative development.
