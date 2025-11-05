@@ -13,6 +13,10 @@ If you're looking for the **best local LLM for programming**, vllama is your ans
 *   **Network-Wide Access:** Serve models to your entire local network, enabling **agents powered by local LLM** and collaborative development.
 *   **Advanced Model Techniques:** Supports models using **quantization**, **distilled models for local programming**, and techniques like **model pruning** to run efficiently on your hardware.
 
+<p align="center">
+  <video src="https://github.com/erkkimon/vllama/raw/main/assets/ollama-vs-vllama.mp4" controls="controls" style="max-width: 720px;"></video>
+</p>
+
 ## Table of Contents
 
 - [Quick Start](#quick-start)
