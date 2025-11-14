@@ -3,3 +3,6 @@ _temp/
 pkg/
 *.pkg.tar.zst
 logs/
+
+# Project plans and ideas
+_plans/

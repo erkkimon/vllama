@@ -151,6 +151,47 @@ vllama is the engine that makes this practical and efficient.
 
 To monitor the logs in real-time, you can use the `tail -f` command on the appropriate log file.
 
+## Configuration
+
+vllama allows you to fine-tune VRAM reservation for context length calculation using environment variables. This overrides the default behavior, which reserves 5% of total VRAM plus an additional 2GB.
+
+*   **`FREE_VRAM_RESERVATION_GB`**: Specifies the amount of VRAM to reserve in Gigabytes. This can be a decimal number (e.g., `4.0` for 4GB).
+*   **`FREE_VRAM_RESERVATION_PERCENTAGE`**: Specifies the percentage of total VRAM to reserve. This should be a decimal between `0.0` and `1.0` (e.g., `0.1` for 10%).
+
+**Usage:**
+
+If both `FREE_VRAM_RESERVATION_GB` and `FREE_VRAM_RESERVATION_PERCENTAGE` are set, vllama will respect the one that results in a *larger* VRAM reservation.
+
+**Example (inline):**
+
+```bash
+FREE_VRAM_RESERVATION_GB=6.0 python vllama.py
+```
+
+**Example (system service context - for `vllama.service`):**
+
+Edit your `vllama.service` file (e.g., `sudo nano /etc/systemd/system/vllama.service`) and add the `Environment` directives under the `[Service]` section:
+
+```ini
+[Service]
+Environment="FREE_VRAM_RESERVATION_GB=4.0"
+# Environment="FREE_VRAM_RESERVATION_PERCENTAGE=0.15"
+ExecStart=/opt/vllama/venv312/bin/python /opt/vllama/vllama.py
+WorkingDirectory=/opt/vllama
+StandardOutput=append:/opt/vllama/logs/vllama.log
+StandardError=append:/opt/vllama/logs/vllama.log
+Restart=always
+User=vllama
+Group=vllama
+```
+
+After modifying the service file, reload the systemd daemon and restart vllama:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl restart vllama.service
+```
+
 ## System Service Setup (Ubuntu/Debian)
 
 For distributions like Ubuntu or Debian, you can set up `vllama` to run as a systemd service for automatic startup.

@@ -216,9 +216,40 @@ def calculate_max_model_len(model_path: str):
     gpu_memory = get_gpu_memory()
     if gpu_memory:
         model_size_mb = os.path.getsize(model_path) / (1024 * 1024)
-        headspace_mb = 2 * 1024 # 2GB
-        available_memory_mb = (gpu_memory * 0.95) - model_size_mb - headspace_mb
+
+        # VRAM reservation
+        reservation_gb_str = os.environ.get("FREE_VRAM_RESERVATION_GB")
+        reservation_percentage_str = os.environ.get("FREE_VRAM_RESERVATION_PERCENTAGE")
+
+        headspace_mb = 0
         
+        # Default reservation if no env vars are set
+        if not reservation_gb_str and not reservation_percentage_str:
+            # Original logic as default: 5% of total VRAM + 2GB
+            headspace_mb = (gpu_memory * 0.05) + (2 * 1024)
+            available_memory_mb = gpu_memory - model_size_mb - headspace_mb
+        else:
+            reservation_from_gb = 0
+            if reservation_gb_str:
+                try:
+                    reservation_from_gb = float(reservation_gb_str) * 1024
+                except ValueError:
+                    logging.warning("Invalid value for FREE_VRAM_RESERVATION_GB: %s. Must be a decimal number.", reservation_gb_str)
+
+            reservation_from_percentage = 0
+            if reservation_percentage_str:
+                try:
+                    percentage = float(reservation_percentage_str)
+                    if 0.0 <= percentage <= 1.0:
+                        reservation_from_percentage = gpu_memory * percentage
+                    else:
+                        logging.warning("FREE_VRAM_RESERVATION_PERCENTAGE must be a decimal between 0.0 and 1.0, but was: %s", reservation_percentage_str)
+                except ValueError:
+                    logging.warning("Invalid value for FREE_VRAM_RESERVATION_PERCENTAGE: %s. Must be a decimal number.", reservation_percentage_str)
+            
+            headspace_mb = max(reservation_from_gb, reservation_from_percentage)
+            available_memory_mb = gpu_memory - model_size_mb - headspace_mb
+
         # Heuristic: 217.6 KB per token
         if available_memory_mb > 0:
             return int(available_memory_mb * 1024 / 217.6)
