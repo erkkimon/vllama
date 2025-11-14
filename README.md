@@ -94,7 +94,7 @@ One of the most powerful uses of vllama is to serve as the brain for local progr
 
 ### Roo Code, Cline, and Goose Setup
 
-**Roo Code**, **Cline**, and **Goose** are powerful programming agents that can use vllama for **inference**. Since vllama provides an OpenAI-compatible API, setting them up is straightforward.
+**Roo Code**, **Cline**, **Kilo Code** and **Goose** are powerful programming agents that can use vllama for **inference**. Since vllama provides an OpenAI-compatible API, setting them up is straightforward.
 
 1.  **Start vllama**: Ensure your `vllama.service` is running or start it manually.
 2.  **Configure the Agent**: In your agent's settings (e.g., in Roo Code's `config.toml`), point the API endpoint to vllama's address.
@@ -186,6 +186,10 @@ For instructions on running `vllama` on Windows, please see the **[Windows Setup
 ## Vision
 
 The vision for vllama is to make high-performance AI inference accessible and efficient. By integrating vLLM's advanced GPU optimizations, it addresses common pain points like slow Ollama inference while maintaining Ollama's simple workflow. This makes it an ideal solution for **local programming** and **local models powered software development**, enabling **agents powered by local LLM** to run efficiently. Whether you're looking for an OpenAI-compatible vLLM server or ways to unload vLLM models when idle, vllama aims to be the go-to tool for users wanting faster **inference** with **Ollama** and **vLLM**.
+
+## How to contribute
+
+All pull requests are welcome! Also, if you have succesfully run your favorite LLM in GGUF format with vLLM, please share it by creating and issue. It will help a lot integrating it into vllama!
 
 ## Client Integration Notes
 
