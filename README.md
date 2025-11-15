@@ -16,12 +16,12 @@ The server empowers you to use local large language models for programming tasks
 *   **Broad Model Support:** All Ollama models are automatically discovered. While vLLM's GGUF support is experimental, many models, including top performers like **Devstral** and **DeepSeek**, are proven to work.
 *   **Network-Wide Access:** Serve models to your entire local network, enabling **agents powered by local LLM** and collaborative development.
 *   **Advanced Model Techniques:** Supports models using **quantization**, **distilled models for local programming**, and techniques like **model pruning** to run efficiently on your hardware.
-*   **GPU-accelerated docker support:** You can easily run the vllama as service using Docker.
 
 ## Table of Contents
 
 - [Quick Start (Docker Recommended)](#quick-start-docker-recommended)
 - [Development](#development)
+- [Maintenance](#maintenance)
 - [Supported Models](#supported-models)
 - [Integrations with Programming Agents](#integrations-with-programming-agents)
 - [Frequently Asked Questions (FAQ)](#frequently-asked-questions-faq)
@@ -62,31 +62,6 @@ Running `vllama` inside a Docker container is the recommended method as it provi
     ```
     `vllama` will then be available at `http://localhost:11435`.
 
-Once running, you can manage the `vllama` service using standard Docker commands:
-
-*   **View Logs:**
-    To view logs in real-time:
-    ```bash
-    docker logs -f vllama-service
-    ```
-    To view the last 100 lines of logs:
-    ```bash
-    docker logs --tail 100 vllama-service
-    ```
-*   **Stop the Service:**
-    ```bash
-    docker stop vllama-service
-    ```
-*   **Start the Service (if you stopped it):**
-    ```bash
-    docker start vllama-service
-    ```
-*   **Remove the Service Permanently:**
-    ```bash
-    docker stop vllama-service
-    docker rm vllama-service
-    ```
-
 ## Development
 
 If you want to run `vllama` directly from the source for development, follow these steps.
@@ -110,6 +85,66 @@ If you want to run `vllama` directly from the source for development, follow the
     python vllama.py
     ```
     The server will start on `http://localhost:11435`.
+
+## Maintenance
+
+Here are the common commands for managing the `vllama` container service.
+
+### Viewing Logs
+
+*   **View logs in real-time:**
+    ```bash
+    docker logs -f vllama-service
+    ```
+
+*   **View the last 100 lines of logs:**
+    ```bash
+    docker logs --tail 100 vllama-service
+    ```
+
+### Starting and Stopping the Service
+
+*   **Start the service (if it was previously stopped):**
+    ```bash
+    docker start vllama-service
+    ```
+
+*   **Stop the service:**
+    ```bash
+    docker stop vllama-service
+    ```
+
+*   **Remove the service permanently (stops it from starting on boot):**
+    ```bash
+    docker stop vllama-service
+    docker rm vllama-service
+    ```
+
+### Updating the Container
+
+To update `vllama` to the latest version, follow these steps:
+
+1.  **Navigate to your project directory and pull the latest code:**
+    ```bash
+    cd /path/to/vllama
+    git pull
+    ```
+
+2.  **Stop and remove the old container:**
+    ```bash
+    docker stop vllama-service
+    docker rm vllama-service
+    ```
+
+3.  **Rebuild the image with the new code:**
+    ```bash
+    docker build -t vllama .
+    ```
+
+4.  **Start the new container using the helper script:**
+    ```bash
+    ./helpers/start_dockerized_vllama.sh
+    ```
 
 ## Supported Models
 
