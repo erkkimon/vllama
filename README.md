@@ -1,10 +1,8 @@
-# vllama: Your High-Performance Local AI Coding Assistant
+# vllama – Ultra-fast vLLM inference for ollama
 
-**vllama is a free, open-source tool that transforms your machine into a powerful offline AI for coding, programming, and more. It serves as the best local code generation tool for developers who value privacy, speed, and customization.**
+vllama is a hybrid server that brings together the best of two worlds: it combines Ollama's versatile model management with the high-speed GPU inference of vLLM. The result is an OpenAI-compatible API that serves local models with optimized performance. It runs on port `11435` as a fast alternative to Ollama (which uses port `11434`), allowing you to run both simultaneously.
 
-vllama is a hybrid server that combines Ollama's easy model management with vLLM's fast GPU inference. This creates an OpenAI-compatible API for optimized performance, making it an excellent choice for anyone looking to set up a **local AI coding assistant**. It runs on port 11435 as a faster alternative to Ollama (port 11434), allowing you to run both simultaneously.
-
-If you're looking for the **best local LLM for programming**, vllama is your answer. It empowers you to use local large language models for programming tasks like **code generation**, **debugging**, **code completion**, **syntax optimization**, and even **offline llm for code debugging**. It's designed for efficient **local LLM** operations and on-device AI, making it a top choice for developers seeking **free local LLM for developers** or powerful **GitHub Copilot alternatives**.
+The server empowers you to use local large language models for programming tasks like **code generation**, **debugging**, and **code completion**. It is designed for efficient **local LLM** operations and on-device AI, serving as a powerful, private alternative to cloud-based services like GitHub Copilot.
 
 <p align="center">
 <a href="https://raw.githack.com/erkkimon/vllama/main/assets/player.html" target="_blank">
@@ -122,17 +120,17 @@ For instructions on running `vllama` on Windows, please see the **[Windows Setup
 
 ## Supported Models
 
-vllama can run any GGUF model available on Ollama, but compatibility ultimately depends on vLLM's support for the model architecture. The table below lists models that have been tested or are good candidates for local coding tasks. This is a great starting point for finding the **top open source LLM for coding locally**.
+vllama can run any GGUF model available on Ollama, but compatibility ultimately depends on vLLM's support for the model architecture. The table below lists models that have been tested or are good candidates for local coding tasks.
 
 | Model Family | Status | Notes |
 |---|---|---|
-| **Devstral** | ✅ **Proven to Work** | Excellent performance for coding and general tasks. A **best local coding model**. |
+| **Devstral** | ✅ **Proven to Work** | Excellent performance for coding and general tasks. |
 | **DeepSeek-R1** | ✅ **Proven to Work** | Great for complex **programming** and following instructions. |
 | **DeepSeek-V2 / V3** | ❔ Untested | Promising for **code generation** and **debugging**. |
 | **Mistral / Mistral-Instruct** | ❔ Untested | Lightweight and fast, good for **code completion**. |
 | **CodeLlama / CodeLlama-Instruct** | ❔ Untested | Specifically **fine-tuned** for programming tasks. |
 | **Phi-3 (Mini, Small, Medium)** | ❔ Untested | Strong reasoning capabilities in a smaller package. |
-| **Llama-3-Code** | ❔ Untested | A powerful contender for the **best local coding llm**. |
+| **Llama-3-Code** | ❔ Untested | A powerful contender for local coding performance. |
 | **Qwen (2.5, 3, 3-VL, 3-Coder)** | ❔ Untested | Strong multilingual and coding abilities. |
 | **Gemma / Gemma-2** | ❔ Untested | Google's open models, good for general purpose and coding. |
 | **StarCoder / StarCoder2** | ❔ Untested | Trained on a massive corpus of code. |
@@ -180,9 +178,9 @@ The same principle applies to most modern AI agents. vllama can serve as a local
 
 **A:** vllama prioritizes speed and stability by running inference exclusively on your GPU. To prevent out-of-memory errors, it automatically calculates the maximum possible context window based on the VRAM available *after* the model is loaded. If you need a larger context window, you should try a smaller model or a version with more aggressive **quantization** (e.g., a 4-bit or 5-bit quantized model instead of a 7-bit or 8-bit one). Finding the **best quantized llm for programming tasks** often involves balancing performance with context size.
 
-**Q: What is the best local LLM for programming?**
+**Q: Which local LLM is best for programming?**
 
-**A:** The "best" model depends heavily on your hardware, the specific task (e.g., **code completion** vs. complex **debugging**), and personal preference. The goal of vllama is to make it easy to experiment. We recommend starting with models proven to work well, like **Devstral** or **DeepSeek-R1**, as they offer a great balance of performance and capability. Check the [Supported Models](#supported-models) table to explore other options.
+**A:** The "best" model depends heavily on your hardware, the specific task (e.g., **code completion** vs. complex **debugging**), and personal preference. The goal of vllama is to make it easy to experiment. Check the [Supported Models](#supported-models) table to explore options.
 
 **Q: How can I use a local LLM for software development?**
 
