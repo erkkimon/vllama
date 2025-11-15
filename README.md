@@ -6,6 +6,12 @@ vllama is a hybrid server that combines Ollama's easy model management with vLLM
 
 If you're looking for the **best local LLM for programming**, vllama is your answer. It empowers you to use local large language models for programming tasks like **code generation**, **debugging**, **code completion**, **syntax optimization**, and even **offline llm for code debugging**. It's designed for efficient **local LLM** operations and on-device AI, making it a top choice for developers seeking **free local LLM for developers** or powerful **GitHub Copilot alternatives**.
 
+<p align="center">
+<a href="https://raw.githack.com/erkkimon/vllama/main/assets/player.html" target="_blank">
+<img src="assets/ollama-vs-vllama-thumbnail.jpg" alt="Ollama vs vLLaMA Demo">
+</a>
+</p>
+
 **Key Features:**
 *   **On-Demand Model Loading & Unloading:** Models are loaded on-demand when a request is received and automatically unloaded after 5 minutes of inactivity, freeing up VRAM and making it a true on-demand solution.
 *   **Automatic Context Length Optimization:** vllama automatically calculates and maximizes the context length based on your available VRAM, ensuring peak performance without manual tweaking.
@@ -13,16 +19,13 @@ If you're looking for the **best local LLM for programming**, vllama is your ans
 *   **Network-Wide Access:** Serve models to your entire local network, enabling **agents powered by local LLM** and collaborative development.
 *   **Advanced Model Techniques:** Supports models using **quantization**, **distilled models for local programming**, and techniques like **model pruning** to run efficiently on your hardware.
 
-<p align="center">
-<a href="https://raw.githack.com/erkkimon/vllama/main/assets/player.html" target="_blank">
-<img src="assets/ollama-vs-vllama-thumbnail.jpg" alt="Ollama vs vLLaMA Demo">
-</a>
-</p>
-
 ## Table of Contents
 
-- [Quick Start](#quick-start)
-  - [Arch Linux Users (AUR)](#arch-linux-users-aur)
+- [Installation and Quick Start](#installation-and-quick-start)
+  - [Docker (Recommended)](#docker-recommended)
+  - [Arch Linux (AUR)](#arch-linux-aur)
+  - [Ubuntu/Debian (Manual)](#ubuntudebian-manual)
+  - [Windows](#windows)
 - [Supported Models](#supported-models)
 - [Integrations with Programming Agents](#integrations-with-programming-agents)
   - [Roo Code, Cline, and Goose Setup](#roo-code-cline-and-goose-setup)
@@ -30,35 +33,92 @@ If you're looking for the **best local LLM for programming**, vllama is your ans
 - [Frequently Asked Questions (FAQ)](#frequently-asked-questions-faq)
 - [Updates](#updates)
 - [Logging](#logging)
-- [System Service Setup (Ubuntu/Debian)](#system-service-setup-ubuntudebian)
-- [Windows Users](#windows-users)
 - [Vision](#vision)
 - [Client Integration Notes](#client-integration-notes)
+- [How to contribute](#how-to-contribute)
 
-## Quick Start
 
+## Installation and Quick Start
+
+### Docker (Recommended)
+
+Running `vllama` inside a Docker container is the recommended method as it provides a consistent and isolated environment.
+
+#### Prerequisites
+
+1.  **Docker:** A working Docker installation.
+2.  **NVIDIA Container Toolkit:** Required to run GPU-accelerated Docker containers. Please see the official installation guide for your distribution:
+    *   [NVIDIA Container Toolkit Installation Guide](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html)
+
+#### Build and Run
+
+1.  **Build the Docker image:**
+    ```bash
+    docker build -t vllama .
+    ```
+
+2.  **Run the container using the helper script:**
+    A helper script is provided to automatically detect your Ollama models path and run the container.
+    ```bash
+    ./helpers/start_dockerized_vllama.sh
+    ```
+    The script will print the detected model path and then launch the container. `vllama` will be available at `http://localhost:11435`.
+
+### Arch Linux (AUR)
 > [!TIP]
-> ### Arch Linux Users (AUR)
 > The fastest way to get started on Arch Linux is by using the [AUR package](https://aur.archlinux.org/packages/vllama). This will install `vllama` as a systemd service.
->
-> ```bash
-> # Install from AUR (e.g., with yay or paru)
-> yay -S vllama
->
-> # Enable and start the core services
-> sudo systemctl enable --now ollama.service
-> sudo systemctl enable --now vllama.service
->
-> # Pull your desired models using Ollama
-> ollama pull tom_himanen/deepseek-r1-roo-cline-tools:14b
-> ollama pull huihui_ai/devstral-abliterated:latest
->
-> # Restart vllama to discover the new models
-> sudo systemctl restart vllama.service
->
-> # Your server is now running!
-> curl http://localhost:11435/v1/models
-> ```
+
+```bash
+# Install from AUR (e.g., with yay or paru)
+yay -S vllama
+
+# Enable and start the core services
+sudo systemctl enable --now ollama.service
+sudo systemctl enable --now vllama.service
+
+# Pull your desired models using Ollama
+ollama pull tom_himanen/deepseek-r1-roo-cline-tools:14b
+ollama pull huihui_ai/devstral-abliterated:latest
+
+# Restart vllama to discover the new models
+sudo systemctl restart vllama.service
+
+# Your server is now running!
+curl http://localhost:11435/v1/models
+```
+
+### Ubuntu/Debian (Manual)
+
+For distributions like Ubuntu or Debian, you can set up `vllama` to run as a systemd service for automatic startup.
+
+1.  **Install Dependencies:**
+    ```bash
+    sudo apt-get update
+    sudo apt-get install -y python3 python3-venv git
+    ```
+
+2.  **Clone and Prepare the Repository:**
+    ```bash
+    git clone https://github.com/erkkimon/vllama.git /tmp/vllama
+    sudo mv /tmp/vllama /opt/vllama
+    cd /opt/vllama
+    sudo python3 -m venv venv312
+    sudo venv312/bin/pip install -r requirements.txt
+    sudo chown -R $USER:$USER /opt/vllama
+    ```
+
+3.  **Configure and Enable the Service:**
+    ```bash
+    sudo cp /opt/vllama/vllama.service /etc/systemd/system/vllama.service
+    sudo systemctl daemon-reload
+    sudo systemctl enable --now vllama.service
+    sudo systemctl status vllama.service
+    ```
+
+### Windows
+
+For instructions on running `vllama` on Windows, please see the **[Windows Setup Guide](./docs/windows.md)**.
+
 
 ## Supported Models
 
@@ -139,6 +199,7 @@ vllama is the engine that makes this practical and efficient.
 
 ## Updates
 
+*   **Nov 15, 2025:** Added Docker support for a consistent, portable environment and a new helper script to make running it easier.
 *   **Nov 4, 2025:** Support for the `deepseek-r1` architecture has been added! 🧠 This allows models like `huihui_ai/deepseek-r1-abliterated:14b` to be used with `vllama`.
 *   **Nov 3, 2025:** `vllama` is alive! 🎉 Devstral models are confirmed to work flawlessly, bringing high-speed local inference to the community. 🚀
 
@@ -150,38 +211,6 @@ vllama is the engine that makes this practical and efficient.
 *   **Development:** When running `vllama.py` directly from the repository, logs are located in a `logs/` directory within the project root.
 
 To monitor the logs in real-time, you can use the `tail -f` command on the appropriate log file.
-
-## System Service Setup (Ubuntu/Debian)
-
-For distributions like Ubuntu or Debian, you can set up `vllama` to run as a systemd service for automatic startup.
-
-1.  **Install Dependencies:**
-    ```bash
-    sudo apt-get update
-    sudo apt-get install -y python3 python3-venv git
-    ```
-
-2.  **Clone and Prepare the Repository:**
-    ```bash
-    git clone https://github.com/erkkimon/vllama.git /tmp/vllama
-    sudo mv /tmp/vllama /opt/vllama
-    cd /opt/vllama
-    sudo python3 -m venv venv312
-    sudo venv312/bin/pip install -r requirements.txt
-    sudo chown -R $USER:$USER /opt/vllama
-    ```
-
-3.  **Configure and Enable the Service:**
-    ```bash
-    sudo cp /opt/vllama/vllama.service /etc/systemd/system/vllama.service
-    sudo systemctl daemon-reload
-    sudo systemctl enable --now vllama.service
-    sudo systemctl status vllama.service
-    ```
-
-## Windows Users
-
-For instructions on running `vllama` on Windows, please see the **[Windows Setup Guide](./docs/windows.md)**.
 
 ## Vision
 
