@@ -19,7 +19,7 @@ The server empowers you to use local large language models for programming tasks
 
 ## Table of Contents
 
-- [Installation (Docker Recommended)](#installation-docker-recommended)
+- [Quick Start (Docker Recommended)](#quick-start-docker-recommended)
 - [Development](#development)
 - [Supported Models](#supported-models)
 - [Integrations with Programming Agents](#integrations-with-programming-agents)
@@ -30,7 +30,7 @@ The server empowers you to use local large language models for programming tasks
 - [Client Integration Notes](#client-integration-notes)
 - [How to contribute](#how-to-contribute)
 
-## Installation (Docker Recommended)
+## Quick Start (Docker Recommended)
 
 Running `vllama` inside a Docker container is the recommended method as it provides a consistent and isolated environment.
 
@@ -199,7 +199,7 @@ To monitor the logs in real-time, you can use the `tail -f` command on the appro
 
 ## Vision
 
-The vision for vllama is to make high-performance AI inference accessible and efficient. By integrating vLLM's advanced GPU optimizations, it addresses common pain points like slow Ollama inference while maintaining Ollama's simple workflow. This makes it an ideal solution for **local programming** and **local models powered software development**, enabling **agents powered by local LLM** to run efficiently. Whether you're looking for an OpenAI-compatible vLLM server or ways to unload vLLM models when idle, vllama aims to be the go-to tool for users wanting faster **inference** with **Ollama** and **vLLM**.
+The vision for vllama is to make high-performance AI inference accessible and efficient. By integrating vLLM's advanced GPU optimizations, it addresses common pain points like slow Ollama inference while maintaining Ollama's simple workflow. This makes it an ideal solution for **local programming** and **local models powered software development**, enabling **agents powered by local LLM** to run efficiently. Whether you're looking for an OpenAI-compatible vLLM server or a way to unload vLLM models when idle, vllama aims to be the go-to tool for users wanting faster **inference** with **Ollama** and **vLLM**.
 
 ## How to contribute
 
