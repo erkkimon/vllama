@@ -13,7 +13,7 @@ If you're looking for the **best local LLM for programming**, vllama is your ans
 *   **Network-Wide Access:** Serve models to your entire local network, enabling **agents powered by local LLM** and collaborative development.
 *   **Advanced Model Techniques:** Supports models using **quantization**, **distilled models for local programming**, and techniques like **model pruning** to run efficiently on your hardware.
 
-🔥 Container-based installation coming soon to main branch.
+🔥 Container-based installation coming soon. The [dockerization](https://github.com/erkkimon/vllama/tree/dockerization) branch will be merged after some more testing, and you can join the testers!
 
 <p align="center">
 <a href="https://raw.githack.com/erkkimon/vllama/main/assets/player.html" target="_blank">
