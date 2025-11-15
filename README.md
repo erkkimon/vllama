@@ -64,8 +64,13 @@ Running `vllama` inside a Docker container is the recommended method as it provi
 Once running, you can manage the `vllama` service using standard Docker commands:
 
 *   **View Logs:**
+    To view logs in real-time:
     ```bash
     docker logs -f vllama-service
+    ```
+    To view the last 100 lines of logs:
+    ```bash
+    docker logs --tail 100 vllama-service
     ```
 *   **Stop the Service:**
     ```bash
