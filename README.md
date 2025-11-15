@@ -45,8 +45,8 @@ Running `vllama` inside a Docker container is the recommended method as it provi
 1.  **Clone the repository and a compatible model:**
     First, clone this repository to your local machine and navigate into the directory.
     ```bash
-    ollama pull tom_himanen/deepseek-r1-roo-cline-tools:14b # proven to work
-    ollama pull huihui_ai/devstral-abliterated:latest # proven to work
+    ollama pull tom_himanen/deepseek-r1-roo-cline-tools:14b # proven to be compatible
+    ollama pull huihui_ai/devstral-abliterated:latest # proven to be compatible
     git clone https://github.com/erkkimon/vllama.git
     cd vllama
     ```
@@ -150,7 +150,7 @@ To update `vllama` to the latest version, follow these steps:
 
 ## Supported Models
 
-vllama can run any GGUF model available on Ollama, but compatibility ultimately depends on vLLM's support for the model architecture. The table below lists models that have been tested or are good candidates for local coding tasks.
+vllama can run any GGUF model available on Ollama, but compatibility ultimately depends on vLLM's support for the model architecture. The table below lists models that have been tested or are good candidates for local coding tasks. If you have managed to run a GGUF model using vLLM, please open an issue with the command you have used for running the GGUF model on vLLM – it helps a lot in integration work. Let's make local programming happen!
 
 | Model Family | Status | Notes |
 |---|---|---|
