@@ -1,0 +1,25 @@
+# Git
+.git
+.gitignore
+
+# Local directories
+_plans/
+_temp/
+logs/
+models/
+pkg/
+venv312/
+assets/
+docs/
+shell_enhancements/
+tests/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Docker related
+Dockerfile
+.dockerignore

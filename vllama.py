@@ -299,7 +299,7 @@ def get_vllm_model_command(model_name: str):
                      served_model_name, model_path_for_vllm, max_model_len, tokenizer_path, tokenizer_mode, tool_call_parser, vllm_dtype)
 
     command_parts = [
-        "python -m vllm.entrypoints.openai.api_server",
+        "/opt/vllama/venv312/bin/python -m vllm.entrypoints.openai.api_server",
         f"--host {VLLM_HOST}",
         f"--port {VLLM_PORT}",
         "--gpu-memory-utilization 0.95",
@@ -368,15 +368,28 @@ async def start_vllm_server(model_name: str):
                 return
 
             logging.info("Starting vLLM server for model %s...", model_name)
-            vllm_log_file = open(f"{LOG_DIR}/vllama.log", "w")
-            vllm_err_file = open(f"{LOG_DIR}/vllm.err", "w")
-            vllm_process = subprocess.Popen(command, shell=True, preexec_fn=os.setsid, stdout=vllm_log_file, stderr=vllm_err_file)
+            vllm_log_file = open(f"{LOG_DIR}/vllama.log", "a")
+            
+            # Capture stderr to debug potential startup crashes
+            vllm_process = subprocess.Popen(
+                command, 
+                shell=True, 
+                preexec_fn=os.setsid, 
+                stdout=vllm_log_file, 
+                stderr=subprocess.PIPE,
+                text=True  # Decode stderr as text
+            )
             current_model = model_name
             
             # Asynchronously wait for the server to be ready
             while not await asyncio.to_thread(is_vllm_ready):
+                # Check if the process terminated unexpectedly
                 if vllm_process.poll() is not None:
-                    logging.error("vLLM server process terminated unexpectedly.")
+                    # Read the error output
+                    stderr_output = ""
+                    if vllm_process.stderr:
+                        stderr_output = vllm_process.stderr.read()
+                    logging.critical(f"vLLM server process terminated unexpectedly. STDERR:\n{stderr_output}")
                     return
                 logging.info("Waiting for vLLM server to be ready...")
                 await asyncio.sleep(2)
