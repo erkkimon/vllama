@@ -42,9 +42,11 @@ Running `vllama` inside a Docker container is the recommended method as it provi
 
 ### Build and Run
 
-1.  **Clone the repository:**
+1.  **Clone the repository and a compatible model:**
     First, clone this repository to your local machine and navigate into the directory.
     ```bash
+    ollama pull tom_himanen/deepseek-r1-roo-cline-tools:14b # proven to work
+    ollama pull huihui_ai/devstral-abliterated:latest # proven to work
     git clone https://github.com/erkkimon/vllama.git
     cd vllama
     ```
