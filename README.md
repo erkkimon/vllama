@@ -19,15 +19,10 @@ The server empowers you to use local large language models for programming tasks
 
 ## Table of Contents
 
-- [Installation and Quick Start](#installation-and-quick-start)
-  - [Docker (Recommended)](#docker-recommended)
-  - [Arch Linux (AUR)](#arch-linux-aur)
-  - [Ubuntu/Debian (Manual)](#ubuntudebian-manual)
-  - [Windows](#windows)
+- [Installation (Docker Recommended)](#installation-docker-recommended)
+- [Development](#development)
 - [Supported Models](#supported-models)
 - [Integrations with Programming Agents](#integrations-with-programming-agents)
-  - [Roo Code, Cline, and Goose Setup](#roo-code-cline-and-goose-setup)
-  - [Other Agent Integrations](#other-agent-integrations)
 - [Frequently Asked Questions (FAQ)](#frequently-asked-questions-faq)
 - [Updates](#updates)
 - [Logging](#logging)
@@ -35,19 +30,16 @@ The server empowers you to use local large language models for programming tasks
 - [Client Integration Notes](#client-integration-notes)
 - [How to contribute](#how-to-contribute)
 
-
-## Installation and Quick Start
-
-### Docker (Recommended)
+## Installation (Docker Recommended)
 
 Running `vllama` inside a Docker container is the recommended method as it provides a consistent and isolated environment.
 
-#### Prerequisites
+### Prerequisites
 
 1.  **Docker:** A working Docker installation.
 2.  **NVIDIA Container Toolkit:** Required to run GPU-accelerated Docker containers. Please see the [official installation guide](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html) for your distribution.
 
-#### Build and Run
+### Build and Run
 
 1.  **Clone the repository:**
     First, clone this repository to your local machine and navigate into the directory.
@@ -63,67 +55,55 @@ Running `vllama` inside a Docker container is the recommended method as it provi
     ```
 
 3.  **Run the container using the helper script:**
-    The helper script will automatically detect your Ollama models path and launch the container.
+    The helper script will automatically detect your Ollama models path and launch the container as a background service.
     ```bash
     ./helpers/start_dockerized_vllama.sh
     ```
     `vllama` will then be available at `http://localhost:11435`.
 
-### Arch Linux (AUR)
-> [!TIP]
-> The fastest way to get started on Arch Linux is by using the [AUR package](https://aur.archlinux.org/packages/vllama). This will install `vllama` as a systemd service.
+Once running, you can manage the `vllama` service using standard Docker commands:
 
-```bash
-# Install from AUR (e.g., with yay or paru)
-yay -S vllama
-
-# Enable and start the core services
-sudo systemctl enable --now ollama.service
-sudo systemctl enable --now vllama.service
-
-# Pull your desired models using Ollama
-ollama pull tom_himanen/deepseek-r1-roo-cline-tools:14b
-ollama pull huihui_ai/devstral-abliterated:latest
-
-# Restart vllama to discover the new models
-sudo systemctl restart vllama.service
-
-# Your server is now running!
-curl http://localhost:11435/v1/models
-```
-
-### Ubuntu/Debian (Manual)
-
-For distributions like Ubuntu or Debian, you can set up `vllama` to run as a systemd service for automatic startup.
-
-1.  **Install Dependencies:**
+*   **View Logs:**
     ```bash
-    sudo apt-get update
-    sudo apt-get install -y python3 python3-venv git
+    docker logs -f vllama-service
+    ```
+*   **Stop the Service:**
+    ```bash
+    docker stop vllama-service
+    ```
+*   **Start the Service (if you stopped it):**
+    ```bash
+    docker start vllama-service
+    ```
+*   **Remove the Service Permanently:**
+    ```bash
+    docker stop vllama-service
+    docker rm vllama-service
     ```
 
-2.  **Clone and Prepare the Repository:**
+## Development
+
+If you want to run `vllama` directly from the source for development, follow these steps.
+
+1.  **Clone the repository:**
     ```bash
-    git clone https://github.com/erkkimon/vllama.git /tmp/vllama
-    sudo mv /tmp/vllama /opt/vllama
-    cd /opt/vllama
-    sudo python3 -m venv venv312
-    sudo venv312/bin/pip install -r requirements.txt
-    sudo chown -R $USER:$USER /opt/vllama
+    git clone https://github.com/erkkimon/vllama.git
+    cd vllama
     ```
 
-3.  **Configure and Enable the Service:**
+2.  **Create a Virtual Environment and Install Dependencies:**
+    This requires Python 3.12 or newer.
     ```bash
-    sudo cp /opt/vllama/vllama.service /etc/systemd/system/vllama.service
-    sudo systemctl daemon-reload
-    sudo systemctl enable --now vllama.service
-    sudo systemctl status vllama.service
+    python3 -m venv venv312
+    source venv312/bin/activate
+    pip install -r requirements.txt
     ```
 
-### Windows
-
-For instructions on running `vllama` on Windows, please see the **[Windows Setup Guide](./docs/windows.md)**.
-
+3.  **Run the application:**
+    ```bash
+    python vllama.py
+    ```
+    The server will start on `http://localhost:11435`.
 
 ## Supported Models
 
