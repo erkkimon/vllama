@@ -19,7 +19,7 @@ The server empowers you to use local large language models for programming tasks
 
 ## Table of Contents
 
-- [Quick Start (Docker Recommended)](#quick-start-docker-recommended)
+- [Quick Start](#quick-start-docker-recommended)
 - [Development](#development)
 - [Maintenance](#maintenance)
 - [Supported Models](#supported-models)
@@ -31,7 +31,7 @@ The server empowers you to use local large language models for programming tasks
 - [Client Integration Notes](#client-integration-notes)
 - [How to contribute](#how-to-contribute)
 
-## Quick Start (Docker Recommended)
+## Quick Start
 
 Running `vllama` inside a Docker container is the recommended method as it provides a consistent and isolated environment.
 
