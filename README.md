@@ -45,22 +45,29 @@ Running `vllama` inside a Docker container is the recommended method as it provi
 #### Prerequisites
 
 1.  **Docker:** A working Docker installation.
-2.  **NVIDIA Container Toolkit:** Required to run GPU-accelerated Docker containers. Please see the official installation guide for your distribution:
-    *   [NVIDIA Container Toolkit Installation Guide](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html)
+2.  **NVIDIA Container Toolkit:** Required to run GPU-accelerated Docker containers. Please see the [official installation guide](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html) for your distribution.
 
 #### Build and Run
 
-1.  **Build the Docker image:**
+1.  **Clone the repository:**
+    First, clone this repository to your local machine and navigate into the directory.
+    ```bash
+    git clone https://github.com/erkkimon/vllama.git
+    cd vllama
+    ```
+
+2.  **Build the Docker image:**
+    From within the repository directory, run the build command:
     ```bash
     docker build -t vllama .
     ```
 
-2.  **Run the container using the helper script:**
-    A helper script is provided to automatically detect your Ollama models path and run the container.
+3.  **Run the container using the helper script:**
+    The helper script will automatically detect your Ollama models path and launch the container.
     ```bash
     ./helpers/start_dockerized_vllama.sh
     ```
-    The script will print the detected model path and then launch the container. `vllama` will be available at `http://localhost:11435`.
+    `vllama` will then be available at `http://localhost:11435`.
 
 ### Arch Linux (AUR)
 > [!TIP]
