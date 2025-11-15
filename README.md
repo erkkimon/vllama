@@ -16,6 +16,7 @@ The server empowers you to use local large language models for programming tasks
 *   **Broad Model Support:** All Ollama models are automatically discovered. While vLLM's GGUF support is experimental, many models, including top performers like **Devstral** and **DeepSeek**, are proven to work.
 *   **Network-Wide Access:** Serve models to your entire local network, enabling **agents powered by local LLM** and collaborative development.
 *   **Advanced Model Techniques:** Supports models using **quantization**, **distilled models for local programming**, and techniques like **model pruning** to run efficiently on your hardware.
+*   **GPU-accelerated docker support:** You can easily run the vllama as service using Docker.
 
 ## Table of Contents
 
