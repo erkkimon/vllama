@@ -155,6 +155,7 @@ vllama can run any GGUF model available on Ollama, but compatibility ultimately 
 | Model Family | Status | Notes |
 |---|---|---|
 | **Devstral** | ✅ **Proven to Work** | Excellent performance for coding and general tasks. |
+| **Magistral** | ✅ **Proven to Work** | A powerful Mistral-family model, works great. |
 | **DeepSeek-R1** | ✅ **Proven to Work** | Great for complex **programming** and following instructions. |
 | **DeepSeek-V2 / V3** | ❔ Untested | Promising for **code generation** and **debugging**. |
 | **Mistral / Mistral-Instruct** | ❔ Untested | Lightweight and fast, good for **code completion**. |
@@ -227,6 +228,7 @@ vllama is the engine that makes this practical and efficient.
 
 ## Updates
 
+*   **Nov 17, 2025:** Support for the Mistral model family is now officially proven to work, including models like Magistral and Devstral.
 *   **Nov 15, 2025:** Added Docker support for a consistent, portable environment and a new helper script to make running it easier.
 *   **Nov 4, 2025:** Support for the `deepseek-r1` architecture has been added! 🧠 This allows models like `huihui_ai/deepseek-r1-abliterated:14b` to be used with `vllama`.
 *   **Nov 3, 2025:** `vllama` is alive! 🎉 Devstral models are confirmed to work flawlessly, bringing high-speed local inference to the community. 🚀

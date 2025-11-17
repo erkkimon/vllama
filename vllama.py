@@ -376,6 +376,19 @@ server_ready = asyncio.Event()
 current_model = None
 
 # --- vLLM Process Management ---
+def is_port_free(host: str, port: int) -> bool:
+    """Check if the given port is free (nothing is listening on it)."""
+    import socket
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        try:
+            s.connect((host, port))
+            return False # Connection successful, port is NOT free
+        except ConnectionRefusedError:
+            return True # Connection refused, port IS free
+        except Exception:
+            # Other errors might mean the port is not free or in a weird state
+            return False
+
 def is_vllm_ready():
     """Check if the vLLM server is ready to accept connections."""
     import socket
@@ -431,19 +444,41 @@ async def start_vllm_server(model_name: str):
             server_ready.set()
 
 def kill_vllm_server():
-    """Kill the vLLM server process."""
+    """Kill the vLLM server process and ensure its port is free."""
     global vllm_process, current_model
     if vllm_process:
         server_ready.clear()
-        logging.info("Killing vLLM server...")
+        logging.info("Killing vLLM server (PID: %d)...", vllm_process.pid)
         try:
-            os.killpg(os.getpgid(vllm_process.pid), signal.SIGTERM)
-            vllm_process.wait()
+            pgid = os.getpgid(vllm_process.pid)
+            os.killpg(pgid, signal.SIGTERM)
+            
+            # Wait for the process to terminate gracefully
+            try:
+                vllm_process.wait(timeout=10) # Give it 10 seconds to shut down
+                logging.info("vLLM process terminated gracefully.")
+            except subprocess.TimeoutExpired:
+                logging.warning("vLLM process did not terminate gracefully after SIGTERM. Force killing.")
+                os.killpg(pgid, signal.SIGKILL) # Force kill
+                vllm_process.wait(timeout=5) # Wait a bit more for force kill
+
+            # Now, wait for the port to be truly free
+            timeout_start = time.time()
+            while not is_port_free(VLLM_HOST, VLLM_PORT):
+                if time.time() - timeout_start > 30: # Max 30 seconds wait for port to free
+                    logging.error("Timeout waiting for vLLM server port to free up. This might indicate a problem.")
+                    break # Exit loop, but log the issue
+                logging.info("Waiting for vLLM server port to free up...")
+                time.sleep(0.5) # Check every 0.5 seconds
+
         except ProcessLookupError:
-            pass # Process already dead
+            logging.info("vLLM process already dead.") # Process already dead
+        except Exception as e:
+            logging.error("Error during vLLM server kill: %s", e)
+
         vllm_process = None
         current_model = None
-        logging.info("vLLM server killed.")
+        logging.info("vLLM server killed and port confirmed free (or timed out waiting).")
 
 # --- Idle Timeout Checker ---
 def idle_check():
