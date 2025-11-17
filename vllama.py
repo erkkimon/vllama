@@ -4,6 +4,8 @@ import subprocess
 import time
 import os
 import signal
+import sys
+import shlex
 import threading
 import logging
 import glob
@@ -50,12 +52,71 @@ class OllamaModel:
     name: str
     gguf_path: str
     architecture: str
+    family: str
     max_model_len: int
     quantization: str
     tokenizer_type: str
     hf_tokenizer_path_or_name: str # Hugging Face tokenizer ID or path to generated tokenizer.json
 
+from gguf import GGUFReader, GGUFValueType
+
 ollama_discovered_models: List[OllamaModel] = []
+
+def get_gguf_metadata(gguf_path: str) -> dict:
+    """
+    Reads a GGUF file using the gguf-py library and returns a dictionary of key-value metadata.
+    """
+    metadata = {}
+    try:
+        reader = GGUFReader(gguf_path, 'r')
+        for key, field in reader.fields.items():
+            if key in ["general.architecture", "tokenizer.ggml.pre"]:
+                # The actual value is stored in the 'parts' list, at the index specified by the 'data' list.
+                if field.data:
+                    value_index = field.data[0]
+                    value_part = field.parts[value_index]
+                    
+                    # The part is a numpy array of bytes that needs to be decoded.
+                    if hasattr(value_part, 'tobytes'):
+                        value_bytes = value_part.tobytes()
+                        # Decode and strip any trailing null characters
+                        metadata[key] = value_bytes.decode('utf-8', errors='ignore').strip('\x00')
+
+    except PermissionError:
+        logging.error(
+            "Permission denied when trying to read GGUF file: %s. "
+            "Please ensure you have read permissions for the Ollama models directory. "
+            "You may need to run this script with sudo or add your user to the 'ollama' group.",
+            gguf_path
+        )
+    except Exception as e:
+        # This will catch errors like the "not a valid GGMLQuantizationType" for specific models
+        # and prevent the entire discovery process from crashing.
+        logging.error("Failed to parse GGUF metadata for %s: %s", gguf_path, str(e))
+    return metadata
+
+def get_model_family(metadata: dict) -> str:
+    """
+    Determines the model family based on its GGUF metadata.
+    """
+    architecture = metadata.get("general.architecture", "")
+    tokenizer_pre = metadata.get("tokenizer.ggml.pre", "")
+
+    # --- Qwen Detection Logic ---
+    # The logic to detect Qwen models is preserved here for future use.
+    # For now, they will be classified as 'unknown' per the requirements.
+    # if "qwen" in architecture:
+    #     return "qwens"
+
+    if architecture == "llama" and tokenizer_pre == "tekken":
+        return "mistrals"
+    
+    if architecture == "qwen2":
+        # This covers the DeepSeek models that are built on the qwen2 architecture.
+        return "deepseeks"
+
+    return "unknown"
+
 
 def discover_ollama_gguf_models():
     logging.info("Discovering Ollama GGUF models...")
@@ -114,39 +175,17 @@ def discover_ollama_gguf_models():
                 elif "quantization" in info_line:
                     quantization = info_line.split("quantization", 1)[1].strip().split()[0]
             
-            # Infer tokenizer type and HF path based on architecture
-            if "devstral" in model_id.lower(): # Explicitly handle Devstral models
-                architecture = "mistral"
-                tokenizer_type = "mistral"
-                hf_tokenizer_path_or_name = "mistralai/Devstral-Small-2507"
-            elif "deepseek-r1" in model_id.lower(): # Explicitly handle deepseek-r1 models
-                architecture = "deepseek_r1"
-                tokenizer_type = "deepseek_r1"
-                hf_tokenizer_path_or_name = "deepseek-ai/DeepSeek-R1-Distill-Qwen-14B"
-            elif architecture.lower() == "llama" or architecture.lower() == "codellama":
-                tokenizer_type = "llama"
-                # Use a more standard Llama tokenizer from Hugging Face
-                hf_tokenizer_path_or_name = "meta-llama/Llama-2-7b-hf" 
-            elif architecture.lower() == "mistral":
-                tokenizer_type = "mistral"
-                # Use a well-known Mistral tokenizer from Hugging Face
-                hf_tokenizer_path_or_name = "mistralai/Mistral-7B-v0.1" 
-            elif architecture.lower() == "gemma": # Handle Gemma architecture
-                tokenizer_type = "gemma"
-                hf_tokenizer_path_or_name = "google/gemma-2b" 
-            elif architecture.lower() == "phi": # Handle Phi architecture
-                tokenizer_type = "phi"
-                hf_tokenizer_path_or_name = "microsoft/phi-2" 
-            elif architecture.lower().startswith("qwen"): # Handle Qwen architectures (e.g., qwen3)
-                tokenizer_type = "qwen"
-                hf_tokenizer_path_or_name = "gpt2" # Based on Ollama source, some Qwen models use gpt2 tokenizer
-            elif architecture.lower() == "gptoss": # Handle gptoss architecture
-                tokenizer_type = "gptoss"
-                hf_tokenizer_path_or_name = "openai-community/gpt2" # Common GPT tokenizer
-            else:
-                tokenizer_type = "auto" # Fallback to auto-detection by vLLM
-                hf_tokenizer_path_or_name = "auto" # Fallback to auto-detection by vLLM
-                logging.warning("Unknown architecture '%s' for model %s. Using 'auto' tokenizer.", architecture, model_id)
+            # New family classification logic
+            family = "unknown"
+            if gguf_path and os.path.exists(gguf_path):
+                gguf_metadata = get_gguf_metadata(gguf_path)
+                family = get_model_family(gguf_metadata)
+                # The architecture from gguf_dump is more reliable
+                architecture = gguf_metadata.get("general.architecture", architecture)
+
+            # Set tokenizer to auto, as it will be handled by family-based logic later
+            tokenizer_type = "auto"
+            hf_tokenizer_path_or_name = "auto"
 
             # Use the minimum of reported and calculated max_model_len
             final_max_model_len = max_model_len
@@ -165,12 +204,13 @@ def discover_ollama_gguf_models():
                     name=model_id,
                     gguf_path=gguf_path,
                     architecture=architecture,
+                    family=family,
                     max_model_len=final_max_model_len,
                     quantization=quantization,
                     tokenizer_type=tokenizer_type,
                     hf_tokenizer_path_or_name=hf_tokenizer_path_or_name
                 ))
-                logging.info("Discovered Ollama model: %s at %s with max_model_len %d", model_id, gguf_path, final_max_model_len)
+                logging.info("Discovered Ollama model: %s (Family: %s) at %s with max_model_len %d", model_id, family, gguf_path, final_max_model_len)
             else:
                 logging.warning("Could not find GGUF path for Ollama model: %s", model_id)
 
@@ -236,49 +276,36 @@ def get_vllm_model_command(model_name: str):
             break
 
     vllm_dtype = "auto" # Default dtype
+    family = "unknown"
 
     if ollama_model_config:
         model_path_for_vllm = ollama_model_config.gguf_path
         served_model_name = ollama_model_config.name
         max_model_len = ollama_model_config.max_model_len
-        tokenizer_path = ollama_model_config.hf_tokenizer_path_or_name # Use HF tokenizer ID
-        
-        # Map our tokenizer_type to vLLM's supported tokenizer-mode
-        if ollama_model_config.tokenizer_type == "llama":
-            tokenizer_mode = "mistral" # vLLM often uses 'mistral' mode for Llama tokenizers
-            tool_call_parser = "llama3_json" # Use a Llama-specific tool-call-parser
-        elif ollama_model_config.tokenizer_type == "mistral":
+        family = ollama_model_config.family
+
+        # Set command parameters based on family
+        if family == "mistrals":
+            tokenizer_path = "mistralai/Devstral-Small-2507"
             tokenizer_mode = "mistral"
             tool_call_parser = "mistral"
-        elif ollama_model_config.tokenizer_type == "deepseek_r1":
+        elif family == "deepseeks":
+            tokenizer_path = "deepseek-ai/DeepSeek-R1-Distill-Qwen-14B"
             tokenizer_mode = "auto"
             tool_call_parser = "deepseek_r1"
-        elif ollama_model_config.tokenizer_type == "gemma": # Handle gemma tokenizer type
+        else: # unknown family
+            tokenizer_path = "auto"
             tokenizer_mode = "auto"
-            tool_call_parser = "openai" # Generic tool parser for gemma
-        elif ollama_model_config.tokenizer_type == "phi": # Handle phi tokenizer type
-            tokenizer_mode = "auto"
-            tool_call_parser = "openai" # Generic tool parser for phi
-        elif ollama_model_config.tokenizer_type == "qwen":
-            tokenizer_mode = "auto" # Let vLLM auto-detect for Qwen
-            tool_call_parser = "qwen3_coder" # Qwen has a specific parser
-            vllm_dtype = "float16" # Explicitly set dtype for Qwen to avoid mixed dtypes error
-        elif ollama_model_config.tokenizer_type == "gptoss": # Handle gptoss tokenizer type
-            tokenizer_mode = "auto"
-            tool_call_parser = "openai" # Generic tool parser for gptoss
-        else:
-            tokenizer_mode = "auto" # Fallback for unknown types
-            tool_call_parser = "openai" # Default fallback for tool-call-parser, more generic than mistral
+            tool_call_parser = "openai" # Generic fallback
 
-        logging.info("Serving Ollama model %s (vLLM model path: %s) with max_model_len %d, tokenizer %s, tokenizer_mode %s, tool_call_parser %s, dtype %s", 
-                     served_model_name, model_path_for_vllm, max_model_len, tokenizer_path, tokenizer_mode, tool_call_parser, vllm_dtype)
+        logging.info("Serving Ollama model %s (Family: %s) with max_model_len %d, tokenizer %s, tokenizer_mode %s, tool_call_parser %s, dtype %s", 
+                     served_model_name, family, max_model_len, tokenizer_path, tokenizer_mode, tool_call_parser, vllm_dtype)
     else:
+        # This block handles manually found GGUF files not managed by Ollama
         model_path = os.path.join(MODELS_DIR, f"{model_name}.gguf")
         if not os.path.exists(model_path):
-            # Try to find model in all available locations
             all_gguf_files = find_gguf_files()
             for f in all_gguf_files:
-                # Check if the base name (without .gguf) matches
                 if os.path.basename(f).replace(".gguf", "") == model_name:
                     model_path = f
                     break
@@ -287,19 +314,20 @@ def get_vllm_model_command(model_name: str):
             logging.error("Model %s not found.", model_name)
             return None
 
-        # For manually found GGUF, we still pass the GGUF path directly.
+        # Treat manually found GGUF as 'unknown' family for safe defaults
+        family = "unknown"
         model_path_for_vllm = model_path
         served_model_name = os.path.basename(model_path).replace(".gguf", "")
         max_model_len = calculate_max_model_len(model_path)
-        tokenizer_path = "mistralai/Devstral-Small-2507" # Default for non-Ollama GGUF
-        tokenizer_mode = "mistral" # Default for non-Ollama GGUF
-        tool_call_parser = "mistral" # Default for non-Ollama GGUF
-        vllm_dtype = "auto" # Default dtype for local GGUF
-        logging.info("Serving local GGUF model %s (vLLM model path: %s) with max_model_len %d, tokenizer %s, tokenizer_mode %s, tool_call_parser %s, dtype %s", 
-                     served_model_name, model_path_for_vllm, max_model_len, tokenizer_path, tokenizer_mode, tool_call_parser, vllm_dtype)
+        tokenizer_path = "auto"
+        tokenizer_mode = "auto"
+        tool_call_parser = "openai" # Generic fallback
+        vllm_dtype = "auto"
+        logging.info("Serving local GGUF model %s (Family: %s) with max_model_len %d, tokenizer %s, tokenizer_mode %s, tool_call_parser %s, dtype %s", 
+                     served_model_name, family, max_model_len, tokenizer_path, tokenizer_mode, tool_call_parser, vllm_dtype)
 
     command_parts = [
-        "/opt/vllama/venv312/bin/python -m vllm.entrypoints.openai.api_server",
+        f"{sys.executable} -m vllm.entrypoints.openai.api_server",
         f"--host {VLLM_HOST}",
         f"--port {VLLM_PORT}",
         "--gpu-memory-utilization 0.95",
@@ -314,24 +342,28 @@ def get_vllm_model_command(model_name: str):
         command_parts.append(tokenizer_arg)
 
     chat_template_arg = ""
-    if ollama_model_config and ollama_model_config.tokenizer_type == "qwen":
-        chat_template_arg = f"--chat-template '{QWEN_CHAT_TEMPLATE_STRING}'"
+    # This specific template is needed for Qwen models, but not for DeepSeek models
+    if ollama_model_config and "qwen" in ollama_model_config.architecture and family != "deepseeks":
+        # Properly quote the chat template string for the shell
+        quoted_template = shlex.quote(QWEN_CHAT_TEMPLATE_STRING)
+        chat_template_arg = f"--chat-template {quoted_template}"
     if chat_template_arg:
         command_parts.append(chat_template_arg)
 
-    # Conditional parser arguments based on the discovered incompatibility
-    if ollama_model_config and ollama_model_config.tokenizer_type == "deepseek_r1":
+    # Conditional parser arguments based on family. DeepSeek requires a specific parser.
+    if family == "deepseeks":
         command_parts.append(f"--reasoning-parser {tool_call_parser}")
     else:
         command_parts.append("--enable-auto-tool-choice")
         command_parts.append(f"--tool-call-parser {tool_call_parser}")
 
-    command_parts.extend([
-        f"--tokenizer-mode {tokenizer_mode}",
-        "--enforce-eager",
-        f"--max-model-len {max_model_len}",
-        f"--dtype {vllm_dtype}"
-    ])
+    # Add final arguments
+    command_parts.append(f"--max-model-len {max_model_len}")
+    if family != "deepseeks":
+        command_parts.extend([
+            f"--tokenizer-mode {tokenizer_mode}",
+            f"--dtype {vllm_dtype}"
+        ])
 
     return " \
     ".join(command_parts)

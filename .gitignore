@@ -3,3 +3,4 @@ _temp/
 pkg/
 *.pkg.tar.zst
 logs/
+_plans/

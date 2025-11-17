@@ -1,1 +1,0 @@
-/home/erkkimon/Git/vllama/install_venv.sh
