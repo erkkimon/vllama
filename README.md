@@ -188,7 +188,7 @@ vllama can run any GGUF model available on Ollama, but compatibility ultimately 
 | **Stable-Code** | ❔ Untested | From the creators of Stable Diffusion. |
 | **Mistral-Nemo** | ❔ Untested | A powerful new model from Mistral. |
 | **Llama-3.1** | ❔ Untested | The latest iteration of the Llama family. |
-| TabNine-Local | ❔ Untested | Open variants of the popular code completion tool. |
+| **TabNine-Local** | ❔ Untested | Open variants of the popular code completion tool. |
 
 Additionally, `vllama` supports loading custom GGUF models. If you create a `/opt/vllama/models` directory on your host system, it will be automatically mounted as a read-only volume inside the Docker container. This feature allows you to use GGUF models that are not available on Ollama Hub. For example, you can download a smaller, efficient model like [Devstral-Small-2505-abliterated.i1-IQ2_M.gguf](https://huggingface.co/mradermacher/Devstral-Small-2505-abliterated-i1-GGUF/resolve/main/Devstral-Small-2505-abliterated.i1-IQ2_M.gguf?download=true). Using smaller models is particularly useful for GPUs with lower VRAM, as it can free up resources to allow for a larger context window.
 
