@@ -188,7 +188,11 @@ vllama can run any GGUF model available on Ollama, but compatibility ultimately 
 | **Stable-Code** | ❔ Untested | From the creators of Stable Diffusion. |
 | **Mistral-Nemo** | ❔ Untested | A powerful new model from Mistral. |
 | **Llama-3.1** | ❔ Untested | The latest iteration of the Llama family. |
-| **TabNine-Local** | ❔ Untested | Open variants of the popular code completion tool. |
+| TabNine-Local | ❔ Untested | Open variants of the popular code completion tool. |
+
+Additionally, `vllama` supports loading custom GGUF models. If you create a `/opt/vllama/models` directory on your host system, it will be automatically mounted as a read-only volume inside the Docker container. This feature allows you to use GGUF models that are not available on Ollama Hub. For example, you can download a smaller, efficient model like [Devstral-Small-2505-abliterated.i1-IQ2_M.gguf](https://huggingface.co/mradermacher/Devstral-Small-2505-abliterated-i1-GGUF/resolve/main/Devstral-Small-2505-abliterated.i1-IQ2_M.gguf?download=true). Using smaller models is particularly useful for GPUs with lower VRAM, as it can free up resources to allow for a larger context window.
+
+**Important Note on Custom Model Directory:** If you create the `/opt/vllama/models` directory *after* the `vllama-service` container has been initially launched, you must stop and remove the existing container (e.g., `docker stop vllama-service && docker rm vllama-service`) and then re-run the `start_dockerized_vllama.sh` helper script. This ensures the new volume mount is correctly applied to the container.
 
 ## Integrations with Programming Agents
 
@@ -241,6 +245,7 @@ vllama is the engine that makes this practical and efficient.
 
 ## Updates
 
+*   **Nov 21, 2025:** Support for loading custom GGUF models from `opt/vllama/models/` folder has been added. 
 *   **Nov 20, 2025:** Simplified container installation method from Docker Hub, allowing direct execution of the helper script.
 *   **Nov 17, 2025:** Support for the Mistral model family is now officially proven to work, including models like Magistral and Devstral.
 *   **Nov 15, 2025:** Added Docker support for a consistent, portable environment and a new helper script to make running it easier.

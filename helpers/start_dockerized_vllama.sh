@@ -52,13 +52,22 @@ echo "✅ Detected Ollama models directory: $OLLAMA_MODELS_PATH"
 echo "🚀 Launching vllama container..."
 
 # Run the Docker container in detached mode as a service
-docker run -d \
-  --gpus all \
-  --network host \
-  --name vllama-service \
-  --restart unless-stopped \
-  -v "$OLLAMA_MODELS_PATH:/var/lib/ollama/models:ro" \
-  tomhimanen/vllama:latest
+DOCKER_RUN_ARGS=(
+  -d
+  --gpus all
+  --network host
+  --name vllama-service
+  --restart unless-stopped
+  -v "$OLLAMA_MODELS_PATH:/var/lib/ollama/models:ro"
+)
+
+# Conditionally add the custom models volume mount
+if [ -d "/opt/vllama/models" ]; then
+  echo "✅ Found custom models directory at /opt/vllama/models, mounting it as read-only."
+  DOCKER_RUN_ARGS+=("-v" "/opt/vllama/models:/opt/vllama/models:ro")
+fi
+
+docker run "${DOCKER_RUN_ARGS[@]}" tomhimanen/vllama:latest
 
 # For development purposes you can use this docker run command instead
 # docker run -d \
