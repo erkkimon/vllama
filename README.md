@@ -245,7 +245,7 @@ vllama is the engine that makes this practical and efficient.
 
 ## Updates
 
-*   **Nov 21, 2025:** Support for loading custom GGUF models from `opt/vllama/models/` folder has been added. 
+*   **Nov 21, 2025:** Support for loading custom GGUF models from `/opt/vllama/models/` folder has been added. 
 *   **Nov 20, 2025:** Simplified container installation method from Docker Hub, allowing direct execution of the helper script.
 *   **Nov 17, 2025:** Support for the Mistral model family is now officially proven to work, including models like Magistral and Devstral.
 *   **Nov 15, 2025:** Added Docker support for a consistent, portable environment and a new helper script to make running it easier.
